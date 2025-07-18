@@ -1,23 +1,27 @@
-# استخدام Python 3.11 slim كصورة أساسية
-FROM python:3.11-slim
+# استخدام صورة أساسية خفيفة الوزن
+FROM python:3.11-slim-bullseye
 
-# تعيين متغير البيئة لتجنب إنشاء ملفات .pyc
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# تعيين متغيرات البيئة
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV DEBIAN_FRONTEND noninteractive
 
-# تعيين مجلد العمل
+# تثبيت التبعيات النظامية
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# إنشاء مجلد التطبيق
 WORKDIR /app
 
-# نسخ ملف المتطلبات
-COPY requirements.txt .
+# نسخ ملفات المشروع
+COPY requirements.txt main.py ./
 
-# تثبيت المتطلبات
+# تثبيت التبعيات
 RUN pip install --no-cache-dir -r requirements.txt
 
-# نسخ ملف البوت
-COPY main.py .
-
-# تعيين المنفذ
+# فتح منفذ التطبيق
 EXPOSE 5000
 
 # تشغيل البوت
