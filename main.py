@@ -172,12 +172,15 @@ async def get_reciter_audio(reciter_id, surah_number):
     
     # البحث عن الروابط في الموشافات المتاحة
     for moshaf in reciter.get('moshaf', []):
-        if 'surah_list' in moshaf and str(surah_number) in moshaf['surah_list']:
-            server = moshaf.get('server')
-            if server:
-                # تنسيق رقم السورة (001, 002, ... 114)
-                surah_str = str(surah_number).zfill(3)
-                return f"{server}{surah_str}.mp3"
+        if 'surah_list' in moshaf:
+            # تحويل قائمة السور إلى قائمة أرقام
+            surah_list = moshaf['surah_list'].split(',')
+            if str(surah_number) in surah_list:
+                server = moshaf.get('server')
+                if server:
+                    # تنسيق رقم السورة (001, 002, ... 114)
+                    surah_str = str(surah_number).zfill(3)
+                    return f"{server}{surah_str}.mp3"
     
     return None
 
@@ -411,8 +414,7 @@ async def show_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("📖 قراءة السورة", callback_data=f"read_surah_{surah_number}")],
-        [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_menu_{surah_number}")],
-        [InlineKeyboardButton("📊 معلومات السورة", callback_data=f"info_surah_{surah_number}")],
+        [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_surah_{surah_number}")],
         [InlineKeyboardButton("🔙 العودة للمصحف", callback_data="browse_quran")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -477,7 +479,7 @@ async def read_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # إضافة أزرار التنقل
     keyboard = [
-        [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_menu_{surah_number}")],
+        [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_surah_{surah_number}")],
         [InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -542,7 +544,7 @@ async def continue_reading(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # إضافة أزرار التنقل
     keyboard = [
-        [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_menu_{surah_number}")],
+        [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_surah_{surah_number}")],
         [InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -676,8 +678,105 @@ async def audio_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    data = query.data.split('_')
-    surah_number = int(data[2]) if len(data) > 2 else None
+    await browse_quran_for_audio(update, context)
+
+async def browse_quran_for_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تصفح المصحف لاختيار سورة للتلاوة"""
+    query = update.callback_query
+    await query.answer()
+    
+    surah_info = await load_surah_info()
+    if not surah_info:
+        await query.edit_message_text("❌ خطأ في تحميل بيانات السور")
+        return
+    
+    # تقسيم السور إلى صفحات
+    surahs_per_page = 10
+    total_pages = (len(surah_info) + surahs_per_page - 1) // surahs_per_page
+    
+    # الصفحة الأولى
+    page = 0
+    start_idx = page * surahs_per_page
+    end_idx = min(start_idx + surahs_per_page, len(surah_info))
+    
+    keyboard = []
+    for i in range(start_idx, end_idx):
+        surah = surah_info[i]
+        button_text = f"{surah['number']}. {surah['name']}"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"audio_surah_{surah['number']}")])
+    
+    # أزرار التنقل
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"audio_page_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"audio_page_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    keyboard.append([InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "🎵 *اختر سورة للاستماع إليها*\n\n"
+        f"📄 الصفحة {page + 1} من {total_pages}",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def audio_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تصفح صفحة معينة من السور للصوتيات"""
+    query = update.callback_query
+    await query.answer()
+    
+    page = int(query.data.split('_')[2])
+    
+    surah_info = await load_surah_info()
+    if not surah_info:
+        await query.edit_message_text("❌ خطأ في تحميل بيانات السور")
+        return
+    
+    surahs_per_page = 10
+    total_pages = (len(surah_info) + surahs_per_page - 1) // surahs_per_page
+    
+    start_idx = page * surahs_per_page
+    end_idx = min(start_idx + surahs_per_page, len(surah_info))
+    
+    keyboard = []
+    for i in range(start_idx, end_idx):
+        surah = surah_info[i]
+        button_text = f"{surah['number']}. {surah['name']}"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"audio_surah_{surah['number']}")])
+    
+    # أزرار التنقل
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"audio_page_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"audio_page_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    keyboard.append([InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "🎵 *اختر سورة للاستماع إليها*\n\n"
+        f"📄 الصفحة {page + 1} من {total_pages}",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def show_reciters(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض قائمة القراء لسورة محددة"""
+    query = update.callback_query
+    await query.answer()
+    
+    surah_number = int(query.data.split('_')[2])
     
     # جلب القُراء المتاحين
     reciters = await load_reciters()
@@ -685,45 +784,109 @@ async def audio_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ لا يوجد قُراء متاحين حالياً، يرجى المحاولة لاحقاً")
         return
     
+    # تقسيم القراء إلى صفحات
+    reciters_per_page = 10
+    total_pages = (len(reciters) + reciters_per_page - 1) // reciters_per_page
+    
+    # الصفحة الأولى
+    page = 0
+    start_idx = page * reciters_per_page
+    end_idx = min(start_idx + reciters_per_page, len(reciters))
+    
     keyboard = []
-    for reciter in reciters:
-        # التحقق من توفر السورة إذا كان معيناً
-        if surah_number:
-            # التحقق من توفر السورة لهذا القارئ
-            available = False
-            for moshaf in reciter.get('moshaf', []):
-                if 'surah_list' in moshaf and str(surah_number) in moshaf['surah_list']:
-                    available = True
-                    break
-            if not available:
-                continue
-        
-        reciter_id = reciter['id']
-        reciter_name = reciter['name']
-        callback_data = f"reciter_{reciter_id}_{surah_number}" if surah_number else f"reciter_{reciter_id}"
-        keyboard.append([InlineKeyboardButton(f"🎧 {reciter_name}", callback_data=callback_data)])
+    for i in range(start_idx, end_idx):
+        reciter = reciters[i]
+        # التحقق من توفر السورة لهذا القارئ
+        audio_url = await get_reciter_audio(reciter['id'], surah_number)
+        if audio_url:
+            keyboard.append([InlineKeyboardButton(f"🎧 {reciter['name']}", callback_data=f"play_audio_{reciter['id']}_{surah_number}")])
     
     if not keyboard:
         await query.edit_message_text("❌ لا يوجد قُراء متاحين لهذه السورة حالياً")
         return
     
-    if surah_number:
-        keyboard.append([InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number}")])
-    else:
-        keyboard.append([InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")])
+    # أزرار التنقل
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"reciters_page_{surah_number}_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"reciters_page_{surah_number}_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    keyboard.append([InlineKeyboardButton("🔙 العودة للسور", callback_data="audio_menu")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    if surah_number:
-        surah_info = await load_surah_info()
-        surah_data = next((s for s in surah_info if s['number'] == surah_number), None)
-        surah_name = surah_data['name'] if surah_data else f"سورة {surah_number}"
-        message = f"🎵 *اختر قارئاً للاستماع لسورة {surah_name}:*"
-    else:
-        message = "🎵 *اختر القارئ الذي تريد الاستماع إليه:*"
+    # جلب اسم السورة
+    surah_info = await load_surah_info()
+    surah_data = next((s for s in surah_info if s['number'] == surah_number), None)
+    surah_name = surah_data['name'] if surah_data else f"سورة {surah_number}"
     
     await query.edit_message_text(
-        message,
+        f"🎵 *اختر قارئاً للاستماع لسورة {surah_name}:*\n\n"
+        f"📄 الصفحة {page + 1} من {total_pages}",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def reciters_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تصفح صفحة معينة من القراء"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    surah_number = int(data[2])
+    page = int(data[3])
+    
+    # جلب القُراء المتاحين
+    reciters = await load_reciters()
+    if not reciters:
+        await query.edit_message_text("❌ لا يوجد قُراء متاحين حالياً، يرجى المحاولة لاحقاً")
+        return
+    
+    # تقسيم القراء إلى صفحات
+    reciters_per_page = 10
+    total_pages = (len(reciters) + reciters_per_page - 1) // reciters_per_page
+    
+    start_idx = page * reciters_per_page
+    end_idx = min(start_idx + reciters_per_page, len(reciters))
+    
+    keyboard = []
+    for i in range(start_idx, end_idx):
+        reciter = reciters[i]
+        # التحقق من توفر السورة لهذا القارئ
+        audio_url = await get_reciter_audio(reciter['id'], surah_number)
+        if audio_url:
+            keyboard.append([InlineKeyboardButton(f"🎧 {reciter['name']}", callback_data=f"play_audio_{reciter['id']}_{surah_number}")])
+    
+    if not keyboard:
+        await query.edit_message_text("❌ لا يوجد قُراء متاحين لهذه السورة حالياً")
+        return
+    
+    # أزرار التنقل
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"reciters_page_{surah_number}_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"reciters_page_{surah_number}_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    keyboard.append([InlineKeyboardButton("🔙 العودة للسور", callback_data="audio_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # جلب اسم السورة
+    surah_info = await load_surah_info()
+    surah_data = next((s for s in surah_info if s['number'] == surah_number), None)
+    surah_name = surah_data['name'] if surah_data else f"سورة {surah_number}"
+    
+    await query.edit_message_text(
+        f"🎵 *اختر قارئاً للاستماع لسورة {surah_name}:*\n\n"
+        f"📄 الصفحة {page + 1} من {total_pages}",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
@@ -734,13 +897,8 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     data = query.data.split('_')
-    reciter_id = int(data[1])
-    surah_number = int(data[2]) if len(data) > 2 else None
-    
-    if not surah_number:
-        # إذا لم يتم تحديد سورة، عرض قائمة السور
-        await browse_quran_for_audio(update, context, reciter_id)
-        return
+    reciter_id = int(data[2])
+    surah_number = int(data[3])
     
     surah_info = await load_surah_info()
     if not surah_info or surah_number < 1 or surah_number > len(surah_info):
@@ -782,7 +940,7 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             title=f"سورة {surah_name}",
             performer=reciter_name,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 العودة للقارئين", callback_data=f"audio_menu_{surah_number}")]
+                [InlineKeyboardButton("🔙 العودة للقارئين", callback_data=f"reciters_{surah_number}")]
             ])
         )
         
@@ -791,133 +949,6 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"خطأ في إرسال الصوت: {e}")
         await query.edit_message_text("❌ حدث خطأ أثناء إرسال التلاوة. يرجى المحاولة لاحقاً.")
-
-async def browse_quran_for_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, reciter_id: int):
-    """تصفح المصحف لاختيار سورة للتلاوة"""
-    query = update.callback_query
-    await query.answer()
-    
-    surah_info = await load_surah_info()
-    if not surah_info:
-        await query.edit_message_text("❌ خطأ في تحميل بيانات السور")
-        return
-    
-    # جلب معلومات القارئ
-    reciters = await load_reciters()
-    reciter = next((r for r in reciters if r['id'] == reciter_id), None)
-    if not reciter:
-        await query.edit_message_text("❌ لم يتم العثور على معلومات القارئ")
-        return
-    
-    reciter_name = reciter['name']
-    
-    # تقسيم السور إلى صفحات
-    surahs_per_page = 10
-    total_pages = (len(surah_info) + surahs_per_page - 1) // surahs_per_page
-    
-    # الصفحة الأولى
-    page = 0
-    start_idx = page * surahs_per_page
-    end_idx = min(start_idx + surahs_per_page, len(surah_info))
-    
-    keyboard = []
-    for i in range(start_idx, end_idx):
-        surah = surah_info[i]
-        # التحقق من توفر السورة للقارئ
-        available = False
-        for moshaf in reciter.get('moshaf', []):
-            if 'surah_list' in moshaf and str(surah['number']) in moshaf['surah_list']:
-                available = True
-                break
-        
-        if available:
-            button_text = f"{surah['number']}. {surah['name']}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"audio_surah_{reciter_id}_{surah['number']}")])
-    
-    # أزرار التنقل
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"audio_page_{reciter_id}_{page-1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"audio_page_{reciter_id}_{page+1}"))
-    
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton("🔙 العودة للقارئين", callback_data="audio_menu")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"🎵 *اختر سورة للاستماع بصوت {reciter_name}*\n\n"
-        f"📄 الصفحة {page + 1} من {total_pages}",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
-
-async def audio_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصفح صفحة معينة من السور للصوتيات"""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data.split('_')
-    reciter_id = int(data[2])
-    page = int(data[3])
-    
-    surah_info = await load_surah_info()
-    if not surah_info:
-        await query.edit_message_text("❌ خطأ في تحميل بيانات السور")
-        return
-    
-    # جلب معلومات القارئ
-    reciters = await load_reciters()
-    reciter = next((r for r in reciters if r['id'] == reciter_id), None)
-    if not reciter:
-        await query.edit_message_text("❌ لم يتم العثور على معلومات القارئ")
-        return
-    
-    reciter_name = reciter['name']
-    
-    surahs_per_page = 10
-    total_pages = (len(surah_info) + surahs_per_page - 1) // surahs_per_page
-    
-    start_idx = page * surahs_per_page
-    end_idx = min(start_idx + surahs_per_page, len(surah_info))
-    
-    keyboard = []
-    for i in range(start_idx, end_idx):
-        surah = surah_info[i]
-        # التحقق من توفر السورة للقارئ
-        available = False
-        for moshaf in reciter.get('moshaf', []):
-            if 'surah_list' in moshaf and str(surah['number']) in moshaf['surah_list']:
-                available = True
-                break
-        
-        if available:
-            button_text = f"{surah['number']}. {surah['name']}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"audio_surah_{reciter_id}_{surah['number']}")])
-    
-    # أزرار التنقل
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"audio_page_{reciter_id}_{page-1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"audio_page_{reciter_id}_{page+1}"))
-    
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton("🔙 العودة للقارئين", callback_data="audio_menu")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"🎵 *اختر سورة للاستماع بصوت {reciter_name}*\n\n"
-        f"📄 الصفحة {page + 1} من {total_pages}",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
 
 async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بدء عملية البحث"""
@@ -973,6 +1004,10 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
         return
     
+    # استخراج الرسالة من الرد
+    if isinstance(ai_reply, dict) and 'message' in ai_reply:
+        ai_reply = ai_reply['message']
+    
     # حفظ النتائج في الذاكرة المؤقتة
     cache['search_results'][update.message.chat_id] = {
         'results': ai_reply,
@@ -1002,30 +1037,36 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
     results = search_data['results']
     query = search_data['query']
     
-    message = f"🔍 *نتائج البحث عن: \"{query}\"*\n\n"
-    message += f"{results}\n\n"
-    message += "🌟 *يمكنك البحث مرة أخرى باستخدام /search*"
+    # تنظيف النتائج من الرموز غير المرغوبة
+    if results.startswith('{'):
+        try:
+            data = json.loads(results)
+            if 'message' in data:
+                results = data['message']
+        except:
+            pass
     
-    keyboard = [
-        [InlineKeyboardButton("🔍 بحث جديد", callback_data="search_quran")],
-        [InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            message,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+    # تقسيم النتائج إذا كانت طويلة
+    if len(results) > 4000:
+        parts = [results[i:i+4000] for i in range(0, len(results), 4000)]
+        for i, part in enumerate(parts):
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{part}",
+                parse_mode=ParseMode.MARKDOWN
+            )
     else:
-        # حذف رسالة "جاري البحث" أولاً
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-        await update.message.reply_text(
-            message,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
+        message = f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{results}\n\n"
+        message += "🌟 *يمكنك البحث مرة أخرى باستخدام /search*"
+        
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            parse_mode=ParseMode.MARKDOWN
         )
+    
+    # حذف رسالة "جاري البحث"
+    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """العودة للقائمة الرئيسية"""
@@ -1033,55 +1074,6 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     await start_from_callback(query, context)
-
-async def surah_info(update: Update, context: ContextTypes.DEFAULT_TYPE, surah_number: int):
-    """عرض معلومات السورة"""
-    query = update.callback_query
-    await query.answer()
-    
-    surah_info = await load_surah_info()
-    if not surah_info:
-        await query.edit_message_text("❌ خطأ في تحميل معلومات السور")
-        return
-    
-    surah_data = next((s for s in surah_info if s['number'] == surah_number), None)
-    if not surah_data:
-        await query.edit_message_text("❌ لم يتم العثور على السورة")
-        return
-    
-    # جلب تفسير قصير للسورة
-    tafsir_url = f"{BASE_URL}/surah/{surah_number}/ar.maududi"
-    tafsir_data = await fetch_json(tafsir_url)
-    
-    tafsir_text = ""
-    if tafsir_data and tafsir_data.get('code') == 200 and 'data' in tafsir_data:
-        if 'tafsir' in tafsir_data['data'] and 'id' in tafsir_data['data']['tafsir']:
-            tafsir_text = tafsir_data['data']['tafsir']['id']['long']
-    
-    message = f"📖 *{surah_data['name']} ({surah_data['englishName']})*\n\n"
-    message += f"*رقم السورة:* {surah_data['number']}\n"
-    message += f"*عدد الآيات:* {surah_data['numberOfAyahs']}\n"
-    message += f"*نوع النزول:* {surah_data['revelationType']}\n"
-    message += f"*الترتيب في النزول:* {surah_data['revelationOrder']}\n\n"
-    
-    if tafsir_text:
-        # اختصار التفسير إذا كان طويلاً
-        if len(tafsir_text) > 1000:
-            tafsir_text = tafsir_text[:1000] + "..."
-        message += f"*نبذة تفسيرية:*\n{tafsir_text}\n"
-    
-    keyboard = [
-        [InlineKeyboardButton("📖 قراءة السورة", callback_data=f"read_surah_{surah_number}")],
-        [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_menu_{surah_number}")],
-        [InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number}")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        message,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
 
 async def read_juz(update: Update, context: ContextTypes.DEFAULT_TYPE, juz_number: int):
     """قراءة الجزء كاملاً"""
@@ -1252,21 +1244,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_juz(update, context)
     elif query.data == "audio_menu":
         await audio_menu(update, context)
-    elif query.data.startswith("audio_menu_"):
-        await audio_menu(update, context)
-    elif query.data.startswith("reciter_"):
-        await play_audio(update, context)
     elif query.data.startswith("audio_page_"):
         await audio_page(update, context)
     elif query.data.startswith("audio_surah_"):
+        await show_reciters(update, context)
+    elif query.data.startswith("reciters_page_"):
+        await reciters_page(update, context)
+    elif query.data.startswith("reciters_"):
+        surah_number = int(query.data.split('_')[1])
+        await show_reciters(update, context)
+    elif query.data.startswith("play_audio_"):
         await play_audio(update, context)
     elif query.data == "search_quran":
         await search_quran(update, context)
     elif query.data == "main_menu":
         await main_menu(update, context)
-    elif query.data.startswith("info_surah_"):
-        surah_number = int(query.data.split('_')[2])
-        await surah_info(update, context, surah_number)
     elif query.data.startswith("read_juz_"):
         juz_number = int(query.data.split('_')[2])
         await read_juz(update, context, juz_number)
