@@ -28,7 +28,14 @@ DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 PORT = int(os.getenv('PORT', 5000))
 
-# عناوين API للمستودع
+# تحويل CHANNEL_ID إلى عدد صحيح
+if CHANNEL_ID:
+    CHANNEL_ID = int(CHANNEL_ID)
+else:
+    logger.error("يجب تعيين CHANNEL_ID في المتغيرات البيئية")
+    exit(1)
+
+# عناوين API للمستودع - تم التصحيح
 BASE_URL = "https://raw.githubusercontent.com/semarketir/quranjson/master/source"
 
 # قائمة القراء المتاحين
@@ -81,12 +88,15 @@ async def fetch_json(url):
     """جلب بيانات JSON من URL"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
+            async with session.get(url, timeout=10) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
                     logger.error(f"خطأ في جلب البيانات من {url}: {response.status}")
                     return None
+    except asyncio.TimeoutError:
+        logger.error(f"انتهت المهلة أثناء جلب {url}")
+        return None
     except Exception as e:
         logger.error(f"خطأ في الاتصال بـ {url}: {e}")
         return None
@@ -95,21 +105,31 @@ async def load_surah_info():
     """تحميل معلومات السور"""
     if cache['surah_info'] is None:
         url = f"{BASE_URL}/surah.json"
-        cache['surah_info'] = await fetch_json(url)
+        data = await fetch_json(url)
+        if data is None:
+            # حاول مرة أخرى
+            data = await fetch_json(url)
+        cache['surah_info'] = data
     return cache['surah_info']
 
 async def load_juz_info():
     """تحميل معلومات الأجزاء"""
     if cache['juz_info'] is None:
         url = f"{BASE_URL}/juz.json"
-        cache['juz_info'] = await fetch_json(url)
+        data = await fetch_json(url)
+        if data is None:
+            data = await fetch_json(url)
+        cache['juz_info'] = data
     return cache['juz_info']
 
 async def load_surah_data(surah_number):
     """تحميل بيانات سورة معينة"""
     if surah_number not in cache['surah_data']:
         url = f"{BASE_URL}/surah/surah_{surah_number}.json"
-        cache['surah_data'][surah_number] = await fetch_json(url)
+        data = await fetch_json(url)
+        if data is None:
+            data = await fetch_json(url)
+        cache['surah_data'][surah_number] = data
     return cache['surah_data'][surah_number]
 
 async def check_user_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE):
@@ -117,7 +137,8 @@ async def check_user_subscription(user_id: int, context: ContextTypes.DEFAULT_TY
     try:
         member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
         return member.status in ['member', 'administrator', 'creator']
-    except:
+    except Exception as e:
+        logger.error(f"خطأ في التحقق من الاشتراك: {e}")
         return False
 
 async def subscription_required(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -388,7 +409,7 @@ async def read_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إنشاء نص السورة
     surah_text = f"📖 *{surah_info_data['titleAr']}*\n\n"
     
-    # إضافة البسملة للسور (عدا التوبة)
+    # إضافة البسملة للسور (عدا التوبة) - تم التصحيح
     if surah_number != 9:
         surah_text += "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n\n"
     
@@ -414,7 +435,7 @@ async def read_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إضافة أزرار التنقل
     keyboard = [
         [InlineKeyboardButton("🎵 الاستماع", callback_data=f"audio_menu_{surah_number}")],
-        [InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number:03d}")]
+        [InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number}")]  # تم التصحيح
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -471,7 +492,7 @@ async def continue_reading(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إضافة أزرار التنقل
     keyboard = [
         [InlineKeyboardButton("🎵 الاستماع", callback_data=f"audio_menu_{surah_number}")],
-        [InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number:03d}")]
+        [InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number}")]  # تم التصحيح
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
