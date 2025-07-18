@@ -121,7 +121,7 @@ async def load_juz_info():
 async def load_surah_data(surah_number):
     """تحميل بيانات سورة معينة"""
     if surah_number not in cache['surah_data']:
-        url = f"{BASE_URL}/verses/by_chapter/{surah_number}?language=ar&words=false"
+        url = f"{BASE_URL}/verses/by_chapter/{surah_number}?language=ar&words=false&per_page=300"
         data = await fetch_json(url)
         if data and 'verses' in data:
             verses = {}
@@ -131,6 +131,7 @@ async def load_surah_data(surah_number):
             cache['surah_data'][surah_number] = verses
         else:
             logger.error(f"فشل في تحميل بيانات سورة {surah_number}")
+            return None
     return cache['surah_data'].get(surah_number, {})
 
 async def check_user_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE):
@@ -420,13 +421,14 @@ async def read_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
         surah_text += "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n\n"
     
     verse_count = 0
+    verses = sorted(surah_data.items(), key=lambda x: int(x[0]))
     
-    for verse_number, verse_text in surah_data.items():
+    for verse_number, verse_text in verses:
         verse_count += 1
         surah_text += f"{verse_text} ﴿{verse_number}﴾\n\n"
         
         # تقسيم الرسالة إذا كانت طويلة
-        if len(surah_text) > 3500:
+        if len(surah_text) > 3000:
             keyboard = [[InlineKeyboardButton("⬇️ المتابعة", callback_data=f"continue_surah_{surah_number}_{verse_number}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -479,14 +481,21 @@ async def continue_reading(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sorted_verses = sorted(surah_data.items(), key=lambda x: int(x[0]))
     
     # بدء من الآية المحددة
+    found_start = False
     for verse_number, verse_text in sorted_verses:
-        if int(verse_number) < start_verse:
+        verse_num = int(verse_number)
+        if verse_num < start_verse:
             continue
+        if not found_start:
+            found_start = True
+            # إضافة البسملة إذا بدأنا من الآية الأولى
+            if verse_num == 1 and surah_number != 9:
+                surah_text += "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ\n\n"
             
         surah_text += f"{verse_text} ﴿{verse_number}﴾\n\n"
         
         # تقسيم الرسالة إذا كانت طويلة
-        if len(surah_text) > 3500:
+        if len(surah_text) > 3000:
             keyboard = [[InlineKeyboardButton("⬇️ المتابعة", callback_data=f"continue_surah_{surah_number}_{verse_number}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -533,6 +542,43 @@ async def juz_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         "📚 *أجزاء القرآن الكريم*\n\n"
         "اختر الجزء الذي تريد تصفحه:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def show_juz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض معلومات الجزء"""
+    query = update.callback_query
+    await query.answer()
+    
+    juz_number = int(query.data.split('_')[1])
+    
+    juz_info = await load_juz_info()
+    if not juz_info:
+        await query.edit_message_text("❌ خطأ في تحميل بيانات الأجزاء")
+        return
+    
+    juz_data = next((j for j in juz_info if j['juz_number'] == juz_number), None)
+    if not juz_data:
+        await query.edit_message_text("❌ لم يتم العثور على معلومات الجزء")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📖 قراءة الجزء", callback_data=f"read_juz_{juz_number}")],
+        [InlineKeyboardButton("🔙 العودة للأجزاء", callback_data="juz_list")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = f"""
+📚 *الجزء {juz_number} - {juz_data['name_arabic']}*
+
+🔢 *عدد الآيات:* {juz_data['verses_count']}
+
+🌟 *اختر ما تريد:*
+    """
+    
+    await query.edit_message_text(
+        message_text,
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
@@ -886,6 +932,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await continue_reading(update, context)
     elif query.data == "juz_list":
         await juz_list(update, context)
+    elif query.data.startswith("juz_"):
+        await show_juz(update, context)  # إضافة معالج جديد للأجزاء
     elif query.data == "audio_menu":
         await audio_menu(update, context)
     elif query.data.startswith("audio_menu_"):
@@ -904,8 +952,95 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await navigate_search_results(update, context, "prev")
     elif query.data == "main_menu":
         await main_menu(update, context)
+    elif query.data.startswith("info_surah_"):
+        # معالج جديد لمعلومات السورة
+        surah_number = int(query.data.split('_')[2])
+        await surah_info(update, context, surah_number)
+    elif query.data.startswith("read_juz_"):
+        # معالج جديد لقراءة الجزء
+        juz_number = int(query.data.split('_')[2])
+        await read_juz(update, context, juz_number)
     else:
         await query.answer("هذه الميزة قيد التطوير! 🚧")
+
+async def surah_info(update: Update, context: ContextTypes.DEFAULT_TYPE, surah_number: int):
+    """عرض معلومات السورة"""
+    query = update.callback_query
+    await query.answer()
+    
+    surah_info = await load_surah_info()
+    if not surah_info:
+        await query.edit_message_text("❌ خطأ في تحميل معلومات السور")
+        return
+    
+    surah_data = next((s for s in surah_info if s['id'] == surah_number), None)
+    if not surah_data:
+        await query.edit_message_text("❌ لم يتم العثور على السورة")
+        return
+    
+    message = f"📖 *{surah_data['name_arabic']} ({surah_data['name_simple']})*\n\n"
+    message += f"*رقم السورة:* {surah_data['id']}\n"
+    message += f"*عدد الآيات:* {surah_data['verses_count']}\n"
+    message += f"*مكان النزول:* {surah_data['revelation_place'].capitalize()}\n"
+    message += f"*ترتيب النزول:* {surah_data['revelation_order']}\n\n"
+    
+    if 'translated_name' in surah_data and surah_data['translated_name']:
+        message += f"*نبذة:* {surah_data['translated_name']['name']} - {surah_data['translated_name']['language_name']}\n"
+    
+    keyboard = [[InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number}")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        message,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def read_juz(update: Update, context: ContextTypes.DEFAULT_TYPE, juz_number: int):
+    """قراءة الجزء كاملاً"""
+    query = update.callback_query
+    await query.answer()
+    
+    # جلب بيانات الجزء
+    url = f"{BASE_URL}/verses/by_juz/{juz_number}?language=ar&words=false&per_page=300"
+    data = await fetch_json(url)
+    
+    if not data or 'verses' not in data:
+        await query.edit_message_text("❌ خطأ في جلب بيانات الجزء")
+        return
+    
+    verses = data['verses']
+    if not verses:
+        await query.edit_message_text("❌ لا توجد آيات في هذا الجزء")
+        return
+    
+    # إنشاء نص الجزء
+    juz_text = f"📖 *الجزء {juz_number}*\n\n"
+    
+    # تجميع الآيات مع ذكر اسم السورة عند تغييرها
+    current_surah = None
+    for verse in verses:
+        surah_id = verse['chapter_id']
+        verse_number = verse['verse_number']
+        verse_text = verse['text_uthmani']
+        
+        # إذا تغيرت السورة، نكتب اسم السورة الجديدة
+        if surah_id != current_surah:
+            surah_info = await load_surah_info()
+            surah_name = next((s['name_arabic'] for s in surah_info if s['id'] == surah_id), f"سورة {surah_id}")
+            juz_text += f"\n*{surah_name}*\n\n"
+            current_surah = surah_id
+            
+        juz_text += f"{verse_text} ﴿{verse_number}﴾ "
+    
+    # إرسال النص (قد يكون طويلاً، لذا سنقسمه)
+    if len(juz_text) > 4096:
+        # سنقسم النص إلى أجزاء
+        parts = [juz_text[i:i+4096] for i in range(0, len(juz_text), 4096)]
+        for part in parts:
+            await query.message.reply_text(part, parse_mode=ParseMode.MARKDOWN)
+    else:
+        await query.edit_message_text(juz_text, parse_mode=ParseMode.MARKDOWN)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج الرسائل العادية"""
