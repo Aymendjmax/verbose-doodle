@@ -12,7 +12,6 @@ from telegram.constants import ParseMode
 from flask import Flask, jsonify
 import threading
 import time
-import re
 
 # إعداد التسجيل
 logging.basicConfig(
@@ -39,14 +38,8 @@ else:
 # Quran API من alquran.vip
 BASE_URL = "https://api.alquran.cloud/v1"
 
-# قائمة القراء المتاحين مع التحقق من توفرهم
-AVAILABLE_RECITERS = {
-    "ar.alafasy": "مشاري العفاسي",
-    "ar.abdulsamad": "عبد الباسط عبد الصمد",
-    "ar.husary": "محمود خليل الحصري",
-    "ar.minshawi": "محمد صديق المنشاوي",
-    "ar.ajamy": "أحمد العجمي"
-}
+# API الصوتيات الجديد
+AUDIO_API_URL = "https://www.mp3quran.net/api/v3/reciters?language=ar"
 
 # Flask app للـ ping
 app = Flask(__name__)
@@ -73,8 +66,8 @@ cache = {
     'surah_info': None,
     'juz_info': None,
     'surah_data': {},
-    'search_results': {},
-    'available_reciters': {}
+    'reciters': None,
+    'search_results': {}
 }
 
 async def fetch_json(url, headers=None):
@@ -98,7 +91,7 @@ async def post_json(url, data, headers=None):
     """إرسال طلب POST والحصول على JSON"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=data, headers=headers, timeout=15) as response:
+            async with session.post(url, data=data, headers=headers, timeout=15) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
@@ -157,21 +150,36 @@ async def load_surah_data(surah_number):
             return None
     return cache['surah_data'].get(surah_number)
 
-async def check_reciter_availability(reciter_id):
-    """التحقق من توفر القارئ"""
-    if reciter_id in cache['available_reciters']:
-        return cache['available_reciters'][reciter_id]
+async def load_reciters():
+    """تحميل قائمة القراء من API الجديد"""
+    if cache['reciters'] is None:
+        data = await fetch_json(AUDIO_API_URL)
+        if data and 'reciters' in data:
+            cache['reciters'] = data['reciters']
+        else:
+            logger.error("فشل في تحميل قائمة القراء")
+    return cache['reciters']
+
+async def get_reciter_audio(reciter_id, surah_number):
+    """الحصول على رابط الصوت للقارئ والسورة"""
+    reciters = await load_reciters()
+    if not reciters:
+        return None
     
-    # التحقق باستخدام سورة الفاتحة (رقم 1)
-    url = f"{BASE_URL}/surah/1/{reciter_id}"
-    data = await fetch_json(url)
+    reciter = next((r for r in reciters if r['id'] == reciter_id), None)
+    if not reciter:
+        return None
     
-    if data and data.get('code') == 200 and 'data' in data and data['data']['ayahs']:
-        cache['available_reciters'][reciter_id] = True
-        return True
-    else:
-        cache['available_reciters'][reciter_id] = False
-        return False
+    # البحث عن الروابط في الموشافات المتاحة
+    for moshaf in reciter.get('moshaf', []):
+        if 'surah_list' in moshaf and str(surah_number) in moshaf['surah_list']:
+            server = moshaf.get('server')
+            if server:
+                # تنسيق رقم السورة (001, 002, ... 114)
+                surah_str = str(surah_number).zfill(3)
+                return f"{server}{surah_str}.mp3"
+    
+    return None
 
 async def check_user_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE):
     """التحقق من اشتراك المستخدم في القناة"""
@@ -671,20 +679,33 @@ async def audio_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data.split('_')
     surah_number = int(data[2]) if len(data) > 2 else None
     
-    # جلب القُراء المتاحين فقط
-    available_reciters = []
-    for reciter_id, reciter_name in AVAILABLE_RECITERS.items():
-        if await check_reciter_availability(reciter_id):
-            available_reciters.append((reciter_id, reciter_name))
-    
-    if not available_reciters:
+    # جلب القُراء المتاحين
+    reciters = await load_reciters()
+    if not reciters:
         await query.edit_message_text("❌ لا يوجد قُراء متاحين حالياً، يرجى المحاولة لاحقاً")
         return
     
     keyboard = []
-    for reciter_id, reciter_name in available_reciters:
+    for reciter in reciters:
+        # التحقق من توفر السورة إذا كان معيناً
+        if surah_number:
+            # التحقق من توفر السورة لهذا القارئ
+            available = False
+            for moshaf in reciter.get('moshaf', []):
+                if 'surah_list' in moshaf and str(surah_number) in moshaf['surah_list']:
+                    available = True
+                    break
+            if not available:
+                continue
+        
+        reciter_id = reciter['id']
+        reciter_name = reciter['name']
         callback_data = f"reciter_{reciter_id}_{surah_number}" if surah_number else f"reciter_{reciter_id}"
         keyboard.append([InlineKeyboardButton(f"🎧 {reciter_name}", callback_data=callback_data)])
+    
+    if not keyboard:
+        await query.edit_message_text("❌ لا يوجد قُراء متاحين لهذه السورة حالياً")
+        return
     
     if surah_number:
         keyboard.append([InlineKeyboardButton("🔙 العودة للسورة", callback_data=f"surah_{surah_number}")])
@@ -693,8 +714,13 @@ async def audio_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    message = "🎵 *اختر القارئ الذي تريد الاستماع إليه:*\n\n"
-    message += "🔊 القُراء المتاحين:\n"
+    if surah_number:
+        surah_info = await load_surah_info()
+        surah_data = next((s for s in surah_info if s['number'] == surah_number), None)
+        surah_name = surah_data['name'] if surah_data else f"سورة {surah_number}"
+        message = f"🎵 *اختر قارئاً للاستماع لسورة {surah_name}:*"
+    else:
+        message = "🎵 *اختر القارئ الذي تريد الاستماع إليه:*"
     
     await query.edit_message_text(
         message,
@@ -708,7 +734,7 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     data = query.data.split('_')
-    reciter_id = data[1]
+    reciter_id = int(data[1])
     surah_number = int(data[2]) if len(data) > 2 else None
     
     if not surah_number:
@@ -727,27 +753,28 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     surah_name = surah_data['name']
-    reciter_name = AVAILABLE_RECITERS.get(reciter_id, "القارئ")
+    
+    # جلب معلومات القارئ
+    reciters = await load_reciters()
+    reciter = next((r for r in reciters if r['id'] == reciter_id), None)
+    if not reciter:
+        await query.edit_message_text("❌ لم يتم العثور على معلومات القارئ")
+        return
+    
+    reciter_name = reciter['name']
     
     # إعلام المستخدم بأن التحميل جارٍ
-    await query.edit_message_text(
-        f"⏳ جاري تحميل تلاوة سورة {surah_name} بصوت {reciter_name}..."
-    )
+    await query.edit_message_text(f"⏳ جاري تحميل تلاوة سورة {surah_name} بصوت {reciter_name}...")
     
-    # جلب روابط الصوتيات
-    audio_url = f"{BASE_URL}/surah/{surah_number}/{reciter_id}"
-    audio_data = await fetch_json(audio_url)
+    # جلب رابط الصوت
+    audio_url = await get_reciter_audio(reciter_id, surah_number)
     
-    if not audio_data or audio_data.get('code') != 200 or 'data' not in audio_data:
+    if not audio_url:
         await query.edit_message_text("❌ تعذر العثور على التلاوة المطلوبة")
         return
     
     # إرسال ملف الصوت
     try:
-        # نجد أول آية لاستخراج رابط الصوت
-        first_ayah = audio_data['data']['ayahs'][0]
-        audio_url = first_ayah['audio'].replace("/1.mp3", ".mp3")
-        
         await context.bot.send_audio(
             chat_id=query.message.chat_id,
             audio=audio_url,
@@ -765,7 +792,7 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"خطأ في إرسال الصوت: {e}")
         await query.edit_message_text("❌ حدث خطأ أثناء إرسال التلاوة. يرجى المحاولة لاحقاً.")
 
-async def browse_quran_for_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, reciter_id: str):
+async def browse_quran_for_audio(update: Update, context: ContextTypes.DEFAULT_TYPE, reciter_id: int):
     """تصفح المصحف لاختيار سورة للتلاوة"""
     query = update.callback_query
     await query.answer()
@@ -774,6 +801,15 @@ async def browse_quran_for_audio(update: Update, context: ContextTypes.DEFAULT_T
     if not surah_info:
         await query.edit_message_text("❌ خطأ في تحميل بيانات السور")
         return
+    
+    # جلب معلومات القارئ
+    reciters = await load_reciters()
+    reciter = next((r for r in reciters if r['id'] == reciter_id), None)
+    if not reciter:
+        await query.edit_message_text("❌ لم يتم العثور على معلومات القارئ")
+        return
+    
+    reciter_name = reciter['name']
     
     # تقسيم السور إلى صفحات
     surahs_per_page = 10
@@ -787,8 +823,16 @@ async def browse_quran_for_audio(update: Update, context: ContextTypes.DEFAULT_T
     keyboard = []
     for i in range(start_idx, end_idx):
         surah = surah_info[i]
-        button_text = f"{surah['number']}. {surah['name']}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"audio_surah_{reciter_id}_{surah['number']}")])
+        # التحقق من توفر السورة للقارئ
+        available = False
+        for moshaf in reciter.get('moshaf', []):
+            if 'surah_list' in moshaf and str(surah['number']) in moshaf['surah_list']:
+                available = True
+                break
+        
+        if available:
+            button_text = f"{surah['number']}. {surah['name']}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"audio_surah_{reciter_id}_{surah['number']}")])
     
     # أزرار التنقل
     nav_buttons = []
@@ -803,8 +847,6 @@ async def browse_quran_for_audio(update: Update, context: ContextTypes.DEFAULT_T
     keyboard.append([InlineKeyboardButton("🔙 العودة للقارئين", callback_data="audio_menu")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    reciter_name = AVAILABLE_RECITERS.get(reciter_id, "القارئ")
     
     await query.edit_message_text(
         f"🎵 *اختر سورة للاستماع بصوت {reciter_name}*\n\n"
@@ -819,13 +861,22 @@ async def audio_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     data = query.data.split('_')
-    reciter_id = data[2]
+    reciter_id = int(data[2])
     page = int(data[3])
     
     surah_info = await load_surah_info()
     if not surah_info:
         await query.edit_message_text("❌ خطأ في تحميل بيانات السور")
         return
+    
+    # جلب معلومات القارئ
+    reciters = await load_reciters()
+    reciter = next((r for r in reciters if r['id'] == reciter_id), None)
+    if not reciter:
+        await query.edit_message_text("❌ لم يتم العثور على معلومات القارئ")
+        return
+    
+    reciter_name = reciter['name']
     
     surahs_per_page = 10
     total_pages = (len(surah_info) + surahs_per_page - 1) // surahs_per_page
@@ -836,8 +887,16 @@ async def audio_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for i in range(start_idx, end_idx):
         surah = surah_info[i]
-        button_text = f"{surah['number']}. {surah['name']}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"audio_surah_{reciter_id}_{surah['number']}")])
+        # التحقق من توفر السورة للقارئ
+        available = False
+        for moshaf in reciter.get('moshaf', []):
+            if 'surah_list' in moshaf and str(surah['number']) in moshaf['surah_list']:
+                available = True
+                break
+        
+        if available:
+            button_text = f"{surah['number']}. {surah['name']}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"audio_surah_{reciter_id}_{surah['number']}")])
     
     # أزرار التنقل
     nav_buttons = []
@@ -852,8 +911,6 @@ async def audio_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 العودة للقارئين", callback_data="audio_menu")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    reciter_name = AVAILABLE_RECITERS.get(reciter_id, "القارئ")
     
     await query.edit_message_text(
         f"🎵 *اختر سورة للاستماع بصوت {reciter_name}*\n\n"
@@ -890,28 +947,35 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # إعداد بيانات الطلب لـ ChatGPT API
     payload = {
-        "action": "ai_chat",
-        "message": f"ابحث في القرآن الكريم عن: {search_text}",
-        "model": "gpt-3.5-turbo"
+        'action': 'ai_chat',
+        'message': f"ابحث في القرآن الكريم عن: {search_text}"
     }
     
     headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
     
     # إرسال طلب البحث
-    response = await post_json(AI_API_URL, payload, headers)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(AI_API_URL, data=payload, headers=headers, timeout=30) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    ai_reply = data.get('data', '') if data else None
+                else:
+                    ai_reply = None
+    except Exception as e:
+        logger.error(f"خطأ في الاتصال بـ API البحث: {e}")
+        ai_reply = None
     
-    if not response or not response.get('success') or not response.get('data'):
+    if not ai_reply:
         await msg.edit_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
         return
     
-    results = response['data']
-    
     # حفظ النتائج في الذاكرة المؤقتة
     cache['search_results'][update.message.chat_id] = {
-        'results': results,
+        'results': ai_reply,
         'query': search_text
     }
     
