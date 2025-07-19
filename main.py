@@ -228,7 +228,7 @@ async def subscription_required(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            "*مرحباً بك في سُطورٌ من السَّماء* ☁️\n\n"
+            "🌟 *مرحباً بك في سُطورٌ من السَّماء* ☁️\n\n"
             "📖 للاستفادة من خدمات البوت، يرجى الاشتراك في قناتنا أولاً:\n\n"
             "💎 ستجد في القناة:\n"
             "• آيات قرآنية يومية 🌅\n"
@@ -260,7 +260,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = f"""
 🌟 *أهلاً وسهلاً {user_name}* 🌟
 
-*سُطورٌ من السَّماء* ☁️
+ *سُطورٌ من السَّماء* ☁️
 
 🕊️ *بوت شامل للقرآن الكريم*
 
@@ -320,7 +320,7 @@ async def start_from_callback(query, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        "*سُطورٌ من السَّماء* ☁️\n\n"
+        " *سُطورٌ من السَّماء* ☁️\n\n"
         "📖 *اختر الخدمة التي تريدها:*\n\n"
         "✨ استكشف عالم القرآن الكريم بلمسة زر",
         parse_mode=ParseMode.MARKDOWN,
@@ -1070,18 +1070,10 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إعلام المستخدم بأن البحث جاري
     msg = await update.message.reply_text("🔍 جاري البحث في القرآن الكريم...\n\n✨ سيتم إرسال النتائج قريباً")
     
-    # إعداد توجيهات للذكاء الاصطناعي لتحسين الردود
-    ai_prompt = (
-        f"ابحث في القرآن الكريم عن: {search_text}\n\n"
-        "وأجب بطريقة منظمة وواضحة مع استخدام الإيموجي المناسبة. قدم النتائج في نقاط واضحة مع ذكر اسم السورة ورقم الآية، "
-        "واشرح معنى الآية بشكل مختصر. خاطب المستخدم بطريقة ودية. ابدأ الرد بتحية جميلة وتودد للمستخدم، "
-        "واختم بنصيحة أو دعاء مناسب. استخدم الإيموجي التالية: 📖✨🤲🌟💡"
-    )
-    
     # إعداد بيانات الطلب لـ ChatGPT API
     payload = {
         'action': 'ai_chat',
-        'message': ai_prompt
+        'message': f"ابحث في القرآن الكريم عن: {search_text}"
     }
     
     headers = {
@@ -1103,50 +1095,16 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ai_reply = None
     
     if not ai_reply:
-        # إرسال رد بديل في حالة فشل البحث
-        alternative_response = (
-            "🤔 *عذرًا، لم أتمكن من العثور على نتائج لبحثك*\n\n"
-            "✨ إليك بعض النصائح لتحسين البحث:\n"
-            "• تأكد من كتابة الكلمة بشكل صحيح 📝\n"
-            "• جرب استخدام مرادفات للكلمة 🔄\n"
-            "• ابحث بكلمة أقصر أو أطول 🔍\n\n"
-            "💡 مثال: بدلاً من \"الرحمة\" جرب \"رحم\"\n\n"
-            "🌟 هل ترغب في إجراء بحث جديد؟"
-        )
-        
-        keyboard = [
-            [InlineKeyboardButton("🔍 بحث جديد", callback_data="search_quran")],
-            [InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await msg.edit_text(
-            alternative_response,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+        await msg.edit_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
         return
     
-    # تحسين الرد إذا كان يحتوي على رموز غير مرغوبة
-    if ai_reply.startswith('{'):
-        try:
-            data = json.loads(ai_reply)
-            if 'message' in data:
-                ai_reply = data['message']
-        except:
-            pass
-    
-    # إضافة مقدمة وخاتمة تفاعلية
-    final_response = (
-        f"🌟 *نتائج البحث عن: \"{search_text}\"*\n\n"
-        f"✨ {ai_reply}\n\n"
-        "🤲 *أسأل الله أن ينفعك بما قرأت* 🌺\n\n"
-        "💡 *هل ترغب في إجراء بحث جديد؟*"
-    )
+    # استخراج الرسالة من الرد
+    if isinstance(ai_reply, dict) and 'message' in ai_reply:
+        ai_reply = ai_reply['message']
     
     # حفظ النتائج في الذاكرة المؤقتة
     cache['search_results'][update.message.chat_id] = {
-        'results': final_response,
+        'results': ai_reply,
         'query': search_text
     }
     
@@ -1173,6 +1131,15 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
     results = search_data['results']
     query = search_data['query']
     
+    # تنظيف النتائج من الرموز غير المرغوبة
+    if results.startswith('{'):
+        try:
+            data = json.loads(results)
+            if 'message' in data:
+                results = data['message']
+        except:
+            pass
+    
     # إضافة أزرار البحث من جديد والعودة
     keyboard = [
         [InlineKeyboardButton("🔍 بحث جديد", callback_data="search_quran")],
@@ -1188,7 +1155,7 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
                 # في الجزء الأخير نضيف الأزرار
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"{part}\n\n"
+                    text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{part}\n\n"
                          "🌟 *هل تود البحث عن شيء آخر؟*",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=reply_markup
@@ -1196,13 +1163,14 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
             else:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=part,
+                    text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{part}",
                     parse_mode=ParseMode.MARKDOWN
                 )
     else:
         await context.bot.send_message(
             chat_id=chat_id,
-            text=results,
+            text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{results}\n\n"
+                 "🌟 *هل تود البحث عن شيء آخر؟*",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
@@ -1419,7 +1387,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     await update.message.reply_text(
-        "مرحباً بك في *سُطورٌ من السَّماء* ☁️\n\n"
+        " مرحباً بك في *سُطورٌ من السَّماء* ☁️\n\n"
         "📖 استخدم الأزرار أدناه للتنقل بين الخدمات\n\n"
         "💡 /start للعودة للقائمة الرئيسية\n\n"
         "✨ استكشف عالم القرآن الكريم بلمسة زر",
