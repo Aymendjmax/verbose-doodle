@@ -973,34 +973,40 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ تعذر العثور على التلاوة المطلوبة")
         return
     
-    # إرسال ملف الصوت مع زيادة المهلة بشكل كبير
+    # إرسال ملف الصوت بدون أي نص أو أزرار
     try:
-        await context.bot.send_audio(
+        # الرسالة الأولى: الملف الصوتي فقط
+        audio_msg = await context.bot.send_audio(
             chat_id=query.message.chat_id,
             audio=audio_url,
-            caption=f"🎧 سورة {surah_name} بصوت {reciter_name}\n\n"
-                    "✨ استمتع بتلاوة عذبة تلامس القلب",
-            title=f"سورة {surah_name}",
-            performer=reciter_name,
             read_timeout=90,
             write_timeout=90,
             connect_timeout=90,
-            pool_timeout=90,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 العودة للقارئين", callback_data=f"reciters_{surah_number}")]
-            ])
+            pool_timeout=90
         )
         
-        # إرسال رسالة تفاعلية بعد الملف الصوتي
+        # الرسالة الثانية: النص والأزرار
+        message_text = f"""
+🌟 *تم إرسال تلاوة سورة {surah_name}*
+
+🎧 *القارئ:* {reciter_name}
+📖 *السورة:* {surah_name} ({surah_number})
+🕋 *عدد آياتها:* {surah_data['numberOfAyahs']}
+
+✨ *هل تود الاستماع إلى تلاوات أخرى؟*
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🎵 تلاوات أخرى", callback_data=f"reciters_{surah_number}")],
+            [InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=f"🌟 *هل تود الاستماع إلى تلاوات أخرى؟*\n\n"
-                 "✨ اختر أحد الخيارات أدناه لمتابعة رحلتك القرآنية",
+            text=message_text,
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎵 تلاوات أخرى", callback_data=f"reciters_{surah_number}")],
-                [InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")]
-            ])
+            reply_markup=reply_markup
         )
         
         # حذف رسالة "جاري التحميل"
