@@ -231,11 +231,11 @@ async def subscription_required(update: Update, context: ContextTypes.DEFAULT_TY
             "🌟 *مرحباً بك في سُطورٌ من السَّماء* ☁️\n\n"
             "📖 للاستفادة من خدمات البوت، يرجى الاشتراك في قناتنا أولاً:\n\n"
             "💎 ستجد في القناة:\n"
-            "• آيات قرآنية يومية\n"
-            "• تفسيرات مختارة\n"
-            "• أدعية وأذكار\n"
-            "• محتوى إسلامي مميز\n\n"
-            "🤲 بارك الله فيك",
+            "• آيات قرآنية يومية 🌅\n"
+            "• تفسيرات مختارة 📚\n"
+            "• أدعية وأذكار 🤲\n"
+            "• محتوى إسلامي مميز ✨\n\n"
+            "🤲 بارك الله فيك وجعل هذا البوت سبباً في رضاك",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
@@ -265,13 +265,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🕊️ *بوت شامل للقرآن الكريم*
 
 ✨ *الخدمات المتاحة:*
-• 📖 تصفح المصحف الكامل
-• 🔍 البحث في الآيات
-• 📚 تصفح الأجزاء والأحزاب
-• 🎵 الاستماع للتلاوات
+• 📖 تصفح المصحف الكامل مع التلاوة
+• 🔍 البحث في الآيات بذكاء
+• 📚 تصفح الأجزاء والأحزاب بسهولة
+• 🎵 الاستماع للتلاوات بصوت أشهر القراء
 • 📝 معلومات تفصيلية عن السور
 
-🤲 *بارك الله فيك وجعل القرآن ربيع قلبك*
+🤲 *بارك الله فيك وجعل القرآن ربيع قلبك ونور صدرك*
     """
     
     await update.message.reply_text(
@@ -290,8 +290,8 @@ async def check_subscription_callback(update: Update, context: ContextTypes.DEFA
     if await check_user_subscription(user_id, context):
         await query.edit_message_text(
             "✅ *تم التحقق بنجاح!*\n\n"
-            "🌟 مرحباً بك في سُطورٌ من السَّماء ☁️\n\n"
-            "استخدم الأزرار أدناه للتنقل:",
+            "🌟 أهلًا بك في رحلة القرآن الكريم ☁️\n\n"
+            "استخدم الأزرار أدناه لاستكشاف كنوز القرآن:",
             parse_mode=ParseMode.MARKDOWN
         )
         # إعادة توجيه للقائمة الرئيسية
@@ -321,7 +321,8 @@ async def start_from_callback(query, context):
     
     await query.edit_message_text(
         "🌟 *سُطورٌ من السَّماء* ☁️\n\n"
-        "📖 *اختر الخدمة التي تريدها:*",
+        "📖 *اختر الخدمة التي تريدها:*\n\n"
+        "✨ استكشف عالم القرآن الكريم بلمسة زر",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
@@ -744,7 +745,8 @@ async def browse_quran_for_audio(update: Update, context: ContextTypes.DEFAULT_T
     
     await query.edit_message_text(
         "🎵 *اختر سورة للاستماع إليها*\n\n"
-        f"📄 الصفحة {page + 1} من {total_pages}",
+        f"📄 الصفحة {page + 1} من {total_pages}\n\n"
+        "✨ اختر سورة لتستمع إلى تلاوتها بأصوات أشهر القراء",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
@@ -789,7 +791,8 @@ async def audio_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(
         "🎵 *اختر سورة للاستماع إليها*\n\n"
-        f"📄 الصفحة {page + 1} من {total_pages}",
+        f"📄 الصفحة {page + 1} من {total_pages}\n\n"
+        "✨ اختر سورة لتستمع إلى تلاوتها بأصوات أشهر القراء",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
@@ -860,7 +863,8 @@ async def show_reciters(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(
         f"🎵 *اختر قارئاً للاستماع لسورة {surah_name}:*\n\n"
-        f"📄 الصفحة {page + 1} من {total_pages}",
+        f"📄 الصفحة {page + 1} من {total_pages}\n\n"
+        "✨ اختر قارئاً لتستمع إلى تلاوة عذبة تلامس القلب",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
@@ -923,7 +927,8 @@ async def reciters_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(
         f"🎵 *اختر قارئاً للاستماع لسورة {surah_name}:*\n\n"
-        f"📄 الصفحة {page + 1} من {total_pages}",
+        f"📄 الصفحة {page + 1} من {total_pages}\n\n"
+        "✨ اختر قارئاً لتستمع إلى تلاوة عذبة تلامس القلب",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=reply_markup
     )
@@ -973,7 +978,8 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_audio(
             chat_id=query.message.chat_id,
             audio=audio_url,
-            caption=f"🎧 سورة {surah_name} بصوت {reciter_name}",
+            caption=f"🎧 سورة {surah_name} بصوت {reciter_name}\n\n"
+                    "✨ استمتع بتلاوة عذبة تلامس القلب",
             title=f"سورة {surah_name}",
             performer=reciter_name,
             read_timeout=90,
@@ -985,27 +991,51 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
         
+        # إرسال رسالة تفاعلية بعد الملف الصوتي
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"🌟 *هل تود الاستماع إلى تلاوات أخرى؟*\n\n"
+                 "✨ اختر أحد الخيارات أدناه لمتابعة رحلتك القرآنية",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎵 تلاوات أخرى", callback_data=f"reciters_{surah_number}")],
+                [InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")]
+            ])
+        )
+        
         # حذف رسالة "جاري التحميل"
         await context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
     except Exception as e:
         logger.error(f"خطأ في إرسال الصوت: {e}")
         
-        # إذا فشل الإرسال، نرسل الرابط مباشرة كحل بديل
-        try:
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=f"⚠️ تعذر إرسال الملف الصوتي مباشرةً.\n\n"
-                     f"🎧 يمكنك الاستماع للتلاوة من الرابط التالي:\n"
-                     f"{audio_url}\n\n"
-                     f"سورة {surah_name} بصوت {reciter_name}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 العودة للقارئين", callback_data=f"reciters_{surah_number}")]
-                ])
-            )
-            await context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
-        except Exception as e2:
-            logger.error(f"فشل إرسال الرابط: {e2}")
-            await query.edit_message_text("❌ حدث خطأ أثناء إرسال التلاوة والرابط. يرجى المحاولة لاحقاً.")
+        # رسالة تفاعلية مع شرح للمشكلة
+        message = f"""
+⚠️ *تعذر إرسال الملف الصوتي مباشرةً*
+
+🎧 **لكن يمكنك الاستماع للتلاوة من الرابط بعد الضغط على الزر**
+
+📖 سورة *{surah_name}* بصوت *{reciter_name}*
+
+👨‍💻 **ملاحظة من المطور:**
+عذرا 🫠 ... لكن حقًا المشكلة ليست بيدي 🤷🏼‍♂️
+ببساطة، بعض السور الكبيرة لا يمكن إرسالها مباشرة بسبب قيود النظام 😐💔
+لكن لو جربت سورًا قصيرة ستجد أن البوت يرسلها بشكل طبيعي 😁🤝
+لا تستهن بخبرتي كمطور محترف 😌✨️
+        """
+        
+        # إرسال الرسالة مع الزر
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=message,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎧 استمع الآن", url=audio_url)],
+                [InlineKeyboardButton("🔙 العودة للقارئين", callback_data=f"reciters_{surah_number}")]
+            ])
+        )
+        
+        # حذف رسالة "جاري التحميل"
+        await context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
 
 async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بدء عملية البحث"""
@@ -1014,7 +1044,8 @@ async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(
         "🔍 *البحث في القرآن الكريم*\n\n"
-        "اكتب الكلمة أو الجملة التي تريد البحث عنها:",
+        "اكتب الكلمة أو الجملة التي تريد البحث عنها:\n\n"
+        "✨ سيتم البحث في آيات القرآن الكريم وإعادتها لك مع تفسير مختصر",
         parse_mode=ParseMode.MARKDOWN
     )
     context.user_data['search_mode'] = True
@@ -1031,7 +1062,7 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('search_mode', None)
     
     # إعلام المستخدم بأن البحث جاري
-    msg = await update.message.reply_text("🔍 جاري البحث في القرآن الكريم...")
+    msg = await update.message.reply_text("🔍 جاري البحث في القرآن الكريم...\n\n✨ سيتم إرسال النتائج قريباً")
     
     # إعداد بيانات الطلب لـ ChatGPT API
     payload = {
@@ -1103,22 +1134,6 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
         except:
             pass
     
-    # تقسيم النتائج إذا كانت طويلة
-    if len(results) > 4000:
-        parts = [results[i:i+4000] for i in range(0, len(results), 4000)]
-        for part in parts:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=part,
-                parse_mode=ParseMode.MARKDOWN
-            )
-    else:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=results,
-            parse_mode=ParseMode.MARKDOWN
-        )
-    
     # إضافة أزرار البحث من جديد والعودة
     keyboard = [
         [InlineKeyboardButton("🔍 بحث جديد", callback_data="search_quran")],
@@ -1126,11 +1141,33 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="🌟",
-        reply_markup=reply_markup
-    )
+    # تقسيم النتائج إذا كانت طويلة
+    if len(results) > 4000:
+        parts = [results[i:i+4000] for i in range(0, len(results), 4000)]
+        for i, part in enumerate(parts):
+            if i == len(parts) - 1:
+                # في الجزء الأخير نضيف الأزرار
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{part}\n\n"
+                         "🌟 *هل تود البحث عن شيء آخر؟*",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=reply_markup
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{part}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+    else:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{results}\n\n"
+                 "🌟 *هل تود البحث عن شيء آخر؟*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
     
     # حذف رسالة "جاري البحث"
     await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
@@ -1346,7 +1383,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🌟 مرحباً بك في *سُطورٌ من السَّماء* ☁️\n\n"
         "📖 استخدم الأزرار أدناه للتنقل بين الخدمات\n\n"
-        "💡 /start للعودة للقائمة الرئيسية",
+        "💡 /start للعودة للقائمة الرئيسية\n\n"
+        "✨ استكشف عالم القرآن الكريم بلمسة زر",
         parse_mode=ParseMode.MARKDOWN
     )
 
