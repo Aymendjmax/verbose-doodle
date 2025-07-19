@@ -628,7 +628,7 @@ async def show_surah_images(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['start_page'] = start_page
     context.user_data['end_page'] = end_page
     
-    # جلب رابط الصفحة الأولى
+    # جلب رابط الصفحة الأولى (تم التصحيح هنا)
     page_url = f"{QURAN_IMAGE_BASE_URL}/{str(start_page).zfill(3)}.png"
     
     keyboard = [
@@ -646,17 +646,22 @@ async def show_surah_images(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✨ *اضغط على 'الصفحة التالية' لمواصلة التصفح*
     """
     
-    # إرسال الصورة مع النص
-    await context.bot.send_photo(
-        chat_id=query.message.chat_id,
-        photo=page_url,
-        caption=message_text,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
-    
-    # حذف الرسالة القديمة
-    await query.message.delete()
+    try:
+        # إرسال الصورة مع النص
+        await context.bot.send_photo(
+            chat_id=query.message.chat_id,
+            photo=page_url,
+            caption=message_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+        # حذف الرسالة القديمة
+        await query.message.delete()
+    except Exception as e:
+        logger.error(f"خطأ في إرسال الصورة: {e}")
+        await query.edit_message_text("❌ تعذر تحميل صورة الصفحة. يرجى المحاولة لاحقًا.")
+
 
 async def next_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض الصفحة التالية من السورة بالصور"""
@@ -668,10 +673,9 @@ async def next_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_page = int(data[4])
     
     # تحديث حالة التصفح
-    context.user_data['current_page'] = current_page + 1
     next_page = current_page + 1
     
-    # جلب رابط الصفحة التالية
+    # جلب رابط الصفحة التالية (تم التصحيح هنا)
     page_url = f"{QURAN_IMAGE_BASE_URL}/{str(next_page).zfill(3)}.png"
     
     # تحميل بيانات السورة
@@ -707,17 +711,22 @@ async def next_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✨ *استمر في التصفح باستخدام الأزرار أدناه*
     """
     
-    # إرسال الصورة الجديدة
-    await context.bot.send_photo(
-        chat_id=query.message.chat_id,
-        photo=page_url,
-        caption=message_text,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
-    
-    # حذف الرسالة القديمة
-    await query.message.delete()
+    try:
+        # إرسال الصورة الجديدة
+        await context.bot.send_photo(
+            chat_id=query.message.chat_id,
+            photo=page_url,
+            caption=message_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+        # حذف الرسالة القديمة
+        await query.message.delete()
+    except Exception as e:
+        logger.error(f"خطأ في إرسال الصورة: {e}")
+        await query.edit_message_text("❌ تعذر تحميل صورة الصفحة. يرجى المحاولة لاحقًا.")
+
 
 async def prev_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض الصفحة السابقة من السورة بالصور"""
@@ -729,10 +738,9 @@ async def prev_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_page = int(data[4])
     
     # تحديث حالة التصفح
-    context.user_data['current_page'] = current_page - 1
     prev_page = current_page - 1
     
-    # جلب رابط الصفحة السابقة
+    # جلب رابط الصفحة السابقة (تم التصحيح هنا)
     page_url = f"{QURAN_IMAGE_BASE_URL}/{str(prev_page).zfill(3)}.png"
     
     # تحميل بيانات السورة
@@ -767,17 +775,21 @@ async def prev_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✨ *استمر في التصفح باستخدام الأزرار أدناه*
     """
     
-    # إرسال الصورة الجديدة
-    await context.bot.send_photo(
-        chat_id=query.message.chat_id,
-        photo=page_url,
-        caption=message_text,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
-    
-    # حذف الرسالة القديمة
-    await query.message.delete()
+    try:
+        # إرسال الصورة الجديدة
+        await context.bot.send_photo(
+            chat_id=query.message.chat_id,
+            photo=page_url,
+            caption=message_text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+        
+        # حذف الرسالة القديمة
+        await query.message.delete()
+    except Exception as e:
+        logger.error(f"خطأ في إرسال الصورة: {e}")
+        await query.edit_message_text("❌ تعذر تحميل صورة الصفحة. يرجى المحاولة لاحقًا.")
 
 async def read_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """قراءة السورة كاملة (نصي)"""
