@@ -41,9 +41,6 @@ BASE_URL = "https://api.alquran.cloud/v1"
 # API الصوتيات الجديد
 AUDIO_API_URL = "https://www.mp3quran.net/api/v3/reciters?language=ar"
 
-# API الجديد لصور المصحف
-QURAN_IMAGE_API = "https://alquran.vip/APIs/quranPagesImage"
-
 # Flask app للـ ping
 app = Flask(__name__)
 
@@ -70,9 +67,7 @@ cache = {
     'juz_info': None,
     'surah_data': {},
     'reciters': None,
-    'search_results': {},
-    'quran_pages': None,  # تخزين بيانات صفحات المصحف
-    'surah_page_map': {}  # خريطة السور للصفحات
+    'search_results': {}
 }
 
 async def fetch_json(url, headers=None):
@@ -212,45 +207,6 @@ async def get_reciter_audio(reciter_id, surah_number):
     
     return None
 
-async def load_quran_pages():
-    """تحميل بيانات صفحات المصحف من API الجديد"""
-    if cache['quran_pages'] is None:
-        data = await fetch_json(QURAN_IMAGE_API)
-        if data and isinstance(data, list):
-            cache['quran_pages'] = data
-            # إنشاء خريطة السور للصفحات
-            surah_page_map = {}
-            for page in data:
-                # افترض أن كل صفحة تحتوي على سورة واحدة فقط
-                # (هذا افتراض قد يحتاج للتعديل حسب بيانات API الفعلية)
-                surah_page_map[page['page_number']] = {
-                    'surah_number': page.get('surah_number', 1),
-                    'surah_name': page.get('surah_name', 'الفاتحة')
-                }
-            cache['surah_page_map'] = surah_page_map
-        else:
-            logger.error("فشل في تحميل بيانات صفحات المصحف")
-    return cache['quran_pages']
-
-def get_page_url(page_number):
-    """الحصول على رابط الصورة لصفحة معينة"""
-    pages = cache.get('quran_pages')
-    if not pages:
-        return None
-    
-    page = next((p for p in pages if p['page_number'] == page_number), None)
-    if page:
-        return page['page_url']
-    return None
-
-def get_surah_for_page(page_number):
-    """الحصول على معلومات السورة لصفحة معينة"""
-    page_map = cache.get('surah_page_map')
-    if not page_map:
-        return {'surah_number': 1, 'surah_name': 'الفاتحة'}
-    
-    return page_map.get(page_number, {'surah_number': 1, 'surah_name': 'الفاتحة'})
-
 async def check_user_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE):
     """التحقق من اشتراك المستخدم في القناة"""
     try:
@@ -372,27 +328,7 @@ async def start_from_callback(query, context):
     )
 
 async def browse_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصفح المصحف (اختيار بين نصي وصوري)"""
-    query = update.callback_query
-    await query.answer()
-    
-    keyboard = [
-        [InlineKeyboardButton("📝 مصحف نصي", callback_data="browse_quran_text")],
-        [InlineKeyboardButton("🖼️ مصحف بالصور", callback_data="browse_quran_images")],
-        [InlineKeyboardButton("🔙 العودة", callback_data="main_menu")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        "📖 *اختر طريقة تصفح المصحف:*\n\n"
-        "• *المصحف النصي*: قراءة الآيات كتابة\n"
-        "• *المصحف المصور*: تصفح صفحات المصحف كصور",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
-
-async def browse_quran_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصفح المصحف نصي"""
+    """تصفح المصحف"""
     query = update.callback_query
     await query.answer()
     
@@ -431,7 +367,7 @@ async def browse_quran_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        f"📖 *المصحف الشريف (نصي)*\n\n"
+        f"📖 *المصحف الشريف*\n\n"
         f"📄 الصفحة {page + 1} من {total_pages}\n"
         f"🔢 السور {start_idx + 1} - {end_idx}\n\n"
         f"اختر السورة التي تريد قراءتها:",
@@ -439,57 +375,8 @@ async def browse_quran_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-async def browse_quran_images(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصفح المصحف بالصور"""
-    query = update.callback_query
-    await query.answer()
-    
-    # تحميل بيانات الصفحات
-    pages_data = await load_quran_pages()
-    if not pages_data:
-        await query.edit_message_text("❌ خطأ في تحميل بيانات صفحات المصحف")
-        return
-    
-    # تقسيم الصفحات إلى مجموعات
-    pages_per_page = 10
-    total_pages = (len(pages_data) + pages_per_page - 1) // pages_per_page
-    
-    # الصفحة الأولى
-    page = 0
-    start_idx = page * pages_per_page
-    end_idx = min(start_idx + pages_per_page, len(pages_data))
-    
-    keyboard = []
-    for i in range(start_idx, end_idx):
-        page_data = pages_data[i]
-        button_text = f"الصفحة {page_data['page_number']}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quran_page_image_{page_data['page_number']}")])
-    
-    # أزرار التنقل
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"quran_image_page_{page-1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"quran_image_page_{page+1}"))
-    
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"📖 *المصحف الشريف (صوري)*\n\n"
-        f"📄 الصفحة {page + 1} من {total_pages}\n"
-        f"🔢 الصفحات {start_idx + 1} - {end_idx}\n\n"
-        f"اختر الصفحة التي تريد تصفحها:",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
-
 async def browse_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصفح صفحة معينة من السور (نصي)"""
+    """تصفح صفحة معينة من السور"""
     query = update.callback_query
     await query.answer()
     
@@ -527,7 +414,7 @@ async def browse_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        f"📖 *المصحف الشريف (نصي)*\n\n"
+        f"📖 *المصحف الشريف*\n\n"
         f"📄 الصفحة {page + 1} من {total_pages}\n"
         f"🔢 السور {start_idx + 1} - {end_idx}\n\n"
         f"اختر السورة التي تريد قراءتها:",
@@ -535,187 +422,8 @@ async def browse_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-async def browse_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصفح صفحة معينة من الصفحات (صوري)"""
-    query = update.callback_query
-    await query.answer()
-    
-    page = int(query.data.split('_')[3])
-    
-    pages_data = await load_quran_pages()
-    if not pages_data:
-        await query.edit_message_text("❌ خطأ في تحميل بيانات صفحات المصحف")
-        return
-    
-    pages_per_page = 10
-    total_pages = (len(pages_data) + pages_per_page - 1) // pages_per_page
-    
-    start_idx = page * pages_per_page
-    end_idx = min(start_idx + pages_per_page, len(pages_data))
-    
-    keyboard = []
-    for i in range(start_idx, end_idx):
-        page_data = pages_data[i]
-        button_text = f"الصفحة {page_data['page_number']}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"quran_page_image_{page_data['page_number']}")])
-    
-    # أزرار التنقل
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"quran_image_page_{page-1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"quran_image_page_{page+1}"))
-    
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        f"📖 *المصحف الشريف (صوري)*\n\n"
-        f"📄 الصفحة {page + 1} من {total_pages}\n"
-        f"🔢 الصفحات {start_idx + 1} - {end_idx}\n\n"
-        f"اختر الصفحة التي تريد تصفحها:",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
-
-async def show_page_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض صفحة مصورة من المصحف"""
-    query = update.callback_query
-    await query.answer()
-    
-    page_number = int(query.data.split('_')[3])
-    
-    # جلب رابط الصورة
-    page_url = get_page_url(page_number)
-    if not page_url:
-        await query.edit_message_text("❌ تعذر العثور على الصفحة المطلوبة")
-        return
-    
-    # الحصول على معلومات السورة للصفحة
-    surah_info = get_surah_for_page(page_number)
-    
-    keyboard = [
-        [
-            InlineKeyboardButton("⬅️ الصفحة السابقة", callback_data=f"prev_page_{page_number}"),
-            InlineKeyboardButton("➡️ الصفحة التالية", callback_data=f"next_page_{page_number}")
-        ],
-        [InlineKeyboardButton("🔙 العودة للمصحف", callback_data="browse_quran_images")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    message_text = f"""
-📖 *الصفحة {page_number} من المصحف الشريف*
-
-📝 *السورة:* {surah_info['surah_name']} (رقم {surah_info['surah_number']})
-
-✨ استمر في التصفح باستخدام الأزرار أدناه
-    """
-    
-    try:
-        # إرسال الصورة مع النص
-        await context.bot.send_photo(
-            chat_id=query.message.chat_id,
-            photo=page_url,
-            caption=message_text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-        
-        # حذف الرسالة القديمة
-        await query.message.delete()
-    except Exception as e:
-        logger.error(f"خطأ في إرسال الصورة: {e}")
-        await query.edit_message_text("❌ تعذر تحميل صورة الصفحة. يرجى المحاولة لاحقًا.")
-
-async def navigate_page(update: Update, context: ContextTypes.DEFAULT_TYPE, direction: str):
-    """التنقل بين الصفحات"""
-    query = update.callback_query
-    await query.answer()
-    
-    current_page = int(query.data.split('_')[2])
-    
-    if direction == "next":
-        new_page = current_page + 1
-    else:
-        new_page = current_page - 1
-    
-    # التحقق من حدود الصفحات
-    pages_data = await load_quran_pages()
-    if not pages_data:
-        await query.edit_message_text("❌ خطأ في تحميل بيانات صفحات المصحف")
-        return
-    
-    min_page = min(p['page_number'] for p in pages_data)
-    max_page = max(p['page_number'] for p in pages_data)
-    
-    if new_page < min_page:
-        new_page = min_page
-    elif new_page > max_page:
-        new_page = max_page
-    
-    # جلب رابط الصورة الجديدة
-    page_url = get_page_url(new_page)
-    if not page_url:
-        await query.edit_message_text("❌ تعذر العثور على الصفحة المطلوبة")
-        return
-    
-    # الحصول على معلومات السورة للصفحة
-    surah_info = get_surah_for_page(new_page)
-    
-    keyboard = []
-    
-    # إضافة أزرار التنقل إذا كانت هناك صفحات قبل أو بعد
-    buttons = []
-    if new_page > min_page:
-        buttons.append(InlineKeyboardButton("⬅️ الصفحة السابقة", callback_data=f"prev_page_{new_page}"))
-    if new_page < max_page:
-        buttons.append(InlineKeyboardButton("➡️ الصفحة التالية", callback_data=f"next_page_{new_page}"))
-    
-    if buttons:
-        keyboard.append(buttons)
-    
-    keyboard.append([InlineKeyboardButton("🔙 العودة للمصحف", callback_data="browse_quran_images")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    message_text = f"""
-📖 *الصفحة {new_page} من المصحف الشريف*
-
-📝 *السورة:* {surah_info['surah_name']} (رقم {surah_info['surah_number']})
-
-✨ استمر في التصفح باستخدام الأزرار أدناه
-    """
-    
-    try:
-        # إرسال الصورة الجديدة
-        await context.bot.send_photo(
-            chat_id=query.message.chat_id,
-            photo=page_url,
-            caption=message_text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
-        
-        # حذف الرسالة القديمة
-        await query.message.delete()
-    except Exception as e:
-        logger.error(f"خطأ في إرسال الصورة: {e}")
-        await query.edit_message_text("❌ تعذر تحميل صورة الصفحة. يرجى المحاولة لاحقًا.")
-
-async def next_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """الصفحة التالية"""
-    await navigate_page(update, context, "next")
-
-async def prev_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """الصفحة السابقة"""
-    await navigate_page(update, context, "prev")
-
 async def show_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض سورة معينة (نصي)"""
+    """عرض سورة معينة"""
     query = update.callback_query
     await query.answer()
     
@@ -731,7 +439,7 @@ async def show_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📖 قراءة السورة", callback_data=f"read_surah_{surah_number}")],
         [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_surah_{surah_number}")],
-        [InlineKeyboardButton("🔙 العودة للمصحف", callback_data="browse_quran_text")]
+        [InlineKeyboardButton("🔙 العودة للمصحف", callback_data="browse_quran")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -752,7 +460,7 @@ async def show_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def read_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """قراءة السورة كاملة (نصي)"""
+    """قراءة السورة كاملة"""
     query = update.callback_query
     await query.answer()
     
@@ -1622,6 +1330,52 @@ async def continue_juz(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج الـ callback queries"""
+    query = update.callback_query
+    
+    if query.data == "check_subscription":
+        await check_subscription_callback(update, context)
+    elif query.data == "browse_quran":
+        await browse_quran(update, context)
+    elif query.data.startswith("quran_page_"):
+        await browse_page(update, context)
+    elif query.data == "browse_juz":
+        await browse_juz(update, context)
+    elif query.data.startswith("juz_page_"):
+        await browse_juz_page(update, context)
+    elif query.data.startswith("surah_"):
+        await show_surah(update, context)
+    elif query.data.startswith("read_surah_"):
+        await read_surah(update, context)
+    elif query.data.startswith("continue_surah_"):
+        await continue_reading(update, context)
+    elif query.data.startswith("juz_"):
+        await show_juz(update, context)
+    elif query.data == "audio_menu":
+        await audio_menu(update, context)
+    elif query.data.startswith("audio_page_"):
+        await audio_page(update, context)
+    elif query.data.startswith("audio_surah_"):
+        await show_reciters(update, context)
+    elif query.data.startswith("reciters_page_"):
+        await reciters_page(update, context)
+    elif query.data.startswith("reciters_"):
+        await show_reciters(update, context)
+    elif query.data.startswith("play_audio_"):
+        await play_audio(update, context)
+    elif query.data == "search_quran":
+        await search_quran(update, context)
+    elif query.data == "main_menu":
+        await main_menu(update, context)
+    elif query.data.startswith("read_juz_"):
+        juz_number = int(query.data.split('_')[2])
+        await read_juz(update, context, juz_number)
+    elif query.data.startswith("continue_juz_"):
+        await continue_juz(update, context)
+    else:
+        await query.answer("هذه الميزة قيد التطوير! 🚧")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج الرسائل العادية"""
     if not await subscription_required(update, context):
@@ -1640,66 +1394,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 
-# دالة جديدة لمعالجة CallbackQuery
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
-
-    # توجيه الاستدعاءات للدوال المناسبة
-    if data == "check_subscription":
-        await check_subscription_callback(update, context)
-    elif data == "browse_quran":
-        await browse_quran(update, context)
-    elif data == "browse_quran_text":
-        await browse_quran_text(update, context)
-    elif data == "browse_quran_images":
-        await browse_quran_images(update, context)
-    elif data.startswith("quran_page_"):
-        await browse_page(update, context)
-    elif data.startswith("quran_image_page_"):
-        await browse_image_page(update, context)
-    elif data.startswith("surah_"):
-        await show_surah(update, context)
-    elif data.startswith("read_surah_"):
-        await read_surah(update, context)
-    elif data.startswith("continue_surah_"):
-        await continue_reading(update, context)
-    elif data.startswith("audio_surah_"):
-        await show_reciters(update, context)
-    elif data.startswith("reciters_page_"):
-        await reciters_page(update, context)
-    elif data.startswith("play_audio_"):
-        await play_audio(update, context)
-    elif data == "search_quran":
-        await search_quran(update, context)
-    elif data == "main_menu":
-        await main_menu(update, context)
-    elif data == "browse_juz":
-        await browse_juz(update, context)
-    elif data.startswith("juz_page_"):
-        await browse_juz_page(update, context)
-    elif data.startswith("juz_"):
-        await show_juz(update, context)
-    elif data.startswith("read_juz_"):
-        # استخراج رقم الجزء
-        juz_number = int(data.split('_')[2])
-        await read_juz(update, context, juz_number)
-    elif data.startswith("continue_juz_"):
-        await continue_juz(update, context)
-    elif data == "audio_menu":
-        await audio_menu(update, context)
-    elif data.startswith("audio_page_"):
-        await audio_page(update, context)
-    elif data.startswith("quran_page_image_"):
-        await show_page_image(update, context)
-    elif data.startswith("prev_page_"):
-        await prev_page(update, context)
-    elif data.startswith("next_page_"):
-        await next_page(update, context)
-    else:
-        await query.answer()
-        await query.edit_message_text("❌ أمر غير معروف، يرجى المحاولة مرة أخرى.")
-
 def main():
     """الدالة الرئيسية"""
     # إنشاء التطبيق
@@ -1707,7 +1401,7 @@ def main():
     
     # إضافة المعالجات
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(handle_callback))  # تم التصحيح هنا
+    application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     # تشغيل البوت
