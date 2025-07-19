@@ -41,6 +41,9 @@ BASE_URL = "https://api.alquran.cloud/v1"
 # API الصوتيات الجديد
 AUDIO_API_URL = "https://www.mp3quran.net/api/v3/reciters?language=ar"
 
+# رابط الصور الأساسي للمصحف
+QURAN_IMAGE_BASE_URL = "https://alquran.vip/APIs/quran-pages"
+
 # Flask app للـ ping
 app = Flask(__name__)
 
@@ -67,7 +70,35 @@ cache = {
     'juz_info': None,
     'surah_data': {},
     'reciters': None,
-    'search_results': {}
+    'search_results': {},
+    'surah_pages': {}  # تخزين معلومات صفحات السور
+}
+
+# معلومات بداية ونهاية السور في المصحف المصور (604 صفحة)
+SURAH_PAGE_RANGES = {
+    1: (1, 1), 2: (2, 49), 3: (50, 76), 4: (77, 105), 5: (106, 127),
+    6: (128, 150), 7: (151, 176), 8: (177, 186), 9: (187, 207), 10: (208, 220),
+    11: (221, 234), 12: (235, 248), 13: (249, 254), 14: (255, 261), 15: (262, 266),
+    16: (267, 281), 17: (282, 292), 18: (293, 304), 19: (305, 311), 20: (312, 321),
+    21: (322, 331), 22: (332, 341), 23: (342, 349), 24: (350, 358), 25: (359, 366),
+    26: (367, 376), 27: (377, 384), 28: (385, 395), 29: (396, 403), 30: (404, 410),
+    31: (411, 414), 32: (415, 417), 33: (418, 427), 34: (428, 433), 35: (434, 439),
+    36: (440, 445), 37: (446, 452), 38: (453, 457), 39: (458, 466), 40: (467, 476),
+    41: (477, 482), 42: (483, 488), 43: (489, 495), 44: (496, 498), 45: (499, 501),
+    46: (502, 506), 47: (507, 510), 48: (511, 514), 49: (515, 517), 50: (518, 519),
+    51: (520, 522), 52: (523, 525), 53: (526, 527), 54: (528, 530), 55: (531, 533),
+    56: (534, 536), 57: (537, 541), 58: (542, 544), 59: (545, 548), 60: (549, 550),
+    61: (551, 552), 62: (553, 553), 63: (554, 555), 64: (556, 557), 65: (558, 559),
+    66: (560, 561), 67: (562, 563), 68: (564, 565), 69: (566, 567), 70: (568, 569),
+    71: (570, 571), 72: (572, 573), 73: (574, 574), 74: (575, 575), 75: (576, 576),
+    76: (577, 577), 77: (578, 578), 78: (579, 579), 79: (580, 580), 80: (581, 581),
+    81: (582, 582), 82: (583, 583), 83: (584, 584), 84: (585, 585), 85: (586, 586),
+    86: (587, 587), 87: (588, 588), 88: (589, 589), 89: (590, 590), 90: (591, 591),
+    91: (592, 592), 92: (593, 593), 93: (594, 594), 94: (595, 595), 95: (596, 596),
+    96: (597, 597), 97: (598, 598), 98: (599, 599), 99: (600, 600), 100: (601, 601),
+    101: (602, 602), 102: (603, 603), 103: (604, 604), 104: (605, 605), 105: (606, 606),
+    106: (607, 607), 107: (608, 608), 108: (609, 609), 109: (610, 610), 110: (611, 611),
+    111: (612, 612), 112: (613, 613), 113: (614, 614), 114: (615, 615)
 }
 
 async def fetch_json(url, headers=None):
@@ -328,7 +359,27 @@ async def start_from_callback(query, context):
     )
 
 async def browse_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصفح المصحف"""
+    """تصفح المصحف (اختيار بين نصي وصوري)"""
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("📝 مصحف نصي", callback_data="browse_quran_text")],
+        [InlineKeyboardButton("🖼️ مصحف بالصور", callback_data="browse_quran_images")],
+        [InlineKeyboardButton("🔙 العودة", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "📖 *اختر طريقة تصفح المصحف:*\n\n"
+        "• *المصحف النصي*: قراءة الآيات كتابة\n"
+        "• *المصحف المصور*: تصفح صفحات المصحف كصور",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def browse_quran_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تصفح المصحف نصي"""
     query = update.callback_query
     await query.answer()
     
@@ -367,7 +418,7 @@ async def browse_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        f"📖 *المصحف الشريف*\n\n"
+        f"📖 *المصحف الشريف (نصي)*\n\n"
         f"📄 الصفحة {page + 1} من {total_pages}\n"
         f"🔢 السور {start_idx + 1} - {end_idx}\n\n"
         f"اختر السورة التي تريد قراءتها:",
@@ -375,8 +426,56 @@ async def browse_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+async def browse_quran_images(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تصفح المصحف بالصور"""
+    query = update.callback_query
+    await query.answer()
+    
+    surah_info = await load_surah_info()
+    if not surah_info:
+        await query.edit_message_text("❌ خطأ في تحميل بيانات السور")
+        return
+    
+    # تقسيم السور إلى صفحات
+    surahs_per_page = 10
+    total_pages = (len(surah_info) + surahs_per_page - 1) // surahs_per_page
+    
+    # الصفحة الأولى
+    page = 0
+    start_idx = page * surahs_per_page
+    end_idx = min(start_idx + surahs_per_page, len(surah_info))
+    
+    keyboard = []
+    for i in range(start_idx, end_idx):
+        surah = surah_info[i]
+        button_text = f"{surah['number']}. {surah['name']} ({surah['numberOfAyahs']} آية)"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"surah_image_{surah['number']}")])
+    
+    # أزرار التنقل
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"quran_image_page_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"quran_image_page_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    keyboard.append([InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"📖 *المصحف الشريف (صوري)*\n\n"
+        f"📄 الصفحة {page + 1} من {total_pages}\n"
+        f"🔢 السور {start_idx + 1} - {end_idx}\n\n"
+        f"اختر السورة التي تريد تصفحها:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
 async def browse_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تصفح صفحة معينة من السور"""
+    """تصفح صفحة معينة من السور (نصي)"""
     query = update.callback_query
     await query.answer()
     
@@ -414,7 +513,7 @@ async def browse_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        f"📖 *المصحف الشريف*\n\n"
+        f"📖 *المصحف الشريف (نصي)*\n\n"
         f"📄 الصفحة {page + 1} من {total_pages}\n"
         f"🔢 السور {start_idx + 1} - {end_idx}\n\n"
         f"اختر السورة التي تريد قراءتها:",
@@ -422,8 +521,55 @@ async def browse_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+async def browse_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تصفح صفحة معينة من السور (صوري)"""
+    query = update.callback_query
+    await query.answer()
+    
+    page = int(query.data.split('_')[3])
+    
+    surah_info = await load_surah_info()
+    if not surah_info:
+        await query.edit_message_text("❌ خطأ في تحميل بيانات السور")
+        return
+    
+    surahs_per_page = 10
+    total_pages = (len(surah_info) + surahs_per_page - 1) // surahs_per_page
+    
+    start_idx = page * surahs_per_page
+    end_idx = min(start_idx + surahs_per_page, len(surah_info))
+    
+    keyboard = []
+    for i in range(start_idx, end_idx):
+        surah = surah_info[i]
+        button_text = f"{surah['number']}. {surah['name']} ({surah['numberOfAyahs']} آية)"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"surah_image_{surah['number']}")])
+    
+    # أزرار التنقل
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"quran_image_page_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"quran_image_page_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    keyboard.append([InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"📖 *المصحف الشريف (صوري)*\n\n"
+        f"📄 الصفحة {page + 1} من {total_pages}\n"
+        f"🔢 السور {start_idx + 1} - {end_idx}\n\n"
+        f"اختر السورة التي تريد تصفحها:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
 async def show_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض سورة معينة"""
+    """عرض سورة معينة (نصي)"""
     query = update.callback_query
     await query.answer()
     
@@ -439,7 +585,7 @@ async def show_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📖 قراءة السورة", callback_data=f"read_surah_{surah_number}")],
         [InlineKeyboardButton("🎵 الاستماع للتلاوة", callback_data=f"audio_surah_{surah_number}")],
-        [InlineKeyboardButton("🔙 العودة للمصحف", callback_data="browse_quran")]
+        [InlineKeyboardButton("🔙 العودة للمصحف", callback_data="browse_quran_text")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -459,8 +605,182 @@ async def show_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+async def show_surah_images(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض سورة معينة بالصور"""
+    query = update.callback_query
+    await query.answer()
+    
+    surah_number = int(query.data.split('_')[2])
+    
+    # تحميل بيانات السورة
+    surah_data = await load_surah_data(surah_number)
+    
+    if not surah_data:
+        await query.edit_message_text("❌ خطأ في تحميل بيانات السورة")
+        return
+    
+    # الحصول على نطاق الصفحات للسورة
+    start_page, end_page = SURAH_PAGE_RANGES.get(surah_number, (1, 1))
+    
+    # حفظ حالة التصفح الحالية
+    context.user_data['current_surah'] = surah_number
+    context.user_data['current_page'] = start_page
+    context.user_data['start_page'] = start_page
+    context.user_data['end_page'] = end_page
+    
+    # جلب رابط الصفحة الأولى
+    page_url = f"{QURAN_IMAGE_BASE_URL}/{str(start_page).zfill(3)}.png"
+    
+    keyboard = [
+        [InlineKeyboardButton("➡️ الصفحة التالية", callback_data=f"next_image_page_{surah_number}_{start_page}")],
+        [InlineKeyboardButton("🔙 العودة للسور", callback_data="browse_quran_images")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = f"""
+📖 *{surah_data['name_arabic']}*
+🔢 *الصفحة {start_page} من {end_page}*
+📍 *السورة رقم {surah_number}*
+📝 *عدد الآيات: {surah_data['ayahs_count']}*
+
+✨ *اضغط على 'الصفحة التالية' لمواصلة التصفح*
+    """
+    
+    # إرسال الصورة مع النص
+    await context.bot.send_photo(
+        chat_id=query.message.chat_id,
+        photo=page_url,
+        caption=message_text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+    
+    # حذف الرسالة القديمة
+    await query.message.delete()
+
+async def next_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض الصفحة التالية من السورة بالصور"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    surah_number = int(data[3])
+    current_page = int(data[4])
+    
+    # تحديث حالة التصفح
+    context.user_data['current_page'] = current_page + 1
+    next_page = current_page + 1
+    
+    # جلب رابط الصفحة التالية
+    page_url = f"{QURAN_IMAGE_BASE_URL}/{str(next_page).zfill(3)}.png"
+    
+    # تحميل بيانات السورة
+    surah_data = await load_surah_data(surah_number)
+    if not surah_data:
+        await query.edit_message_text("❌ خطأ في تحميل بيانات السورة")
+        return
+    
+    # الحصول على نطاق الصفحات للسورة
+    start_page, end_page = SURAH_PAGE_RANGES.get(surah_number, (1, 1))
+    
+    keyboard = []
+    
+    # إضافة زر الصفحة السابقة إذا لم نكن في الصفحة الأولى
+    if next_page > start_page:
+        keyboard.append(InlineKeyboardButton("⬅️ الصفحة السابقة", callback_data=f"prev_image_page_{surah_number}_{next_page}"))
+    
+    # إضافة زر الصفحة التالية إذا لم نكن في الصفحة الأخيرة
+    if next_page < end_page:
+        keyboard.append(InlineKeyboardButton("➡️ الصفحة التالية", callback_data=f"next_image_page_{surah_number}_{next_page}"))
+    
+    # إضافة زر العودة
+    keyboard.append([InlineKeyboardButton("🔙 العودة للسور", callback_data="browse_quran_images")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = f"""
+📖 *{surah_data['name_arabic']}*
+🔢 *الصفحة {next_page} من {end_page}*
+📍 *السورة رقم {surah_number}*
+📝 *عدد الآيات: {surah_data['ayahs_count']}*
+
+✨ *استمر في التصفح باستخدام الأزرار أدناه*
+    """
+    
+    # إرسال الصورة الجديدة
+    await context.bot.send_photo(
+        chat_id=query.message.chat_id,
+        photo=page_url,
+        caption=message_text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+    
+    # حذف الرسالة القديمة
+    await query.message.delete()
+
+async def prev_image_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض الصفحة السابقة من السورة بالصور"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    surah_number = int(data[3])
+    current_page = int(data[4])
+    
+    # تحديث حالة التصفح
+    context.user_data['current_page'] = current_page - 1
+    prev_page = current_page - 1
+    
+    # جلب رابط الصفحة السابقة
+    page_url = f"{QURAN_IMAGE_BASE_URL}/{str(prev_page).zfill(3)}.png"
+    
+    # تحميل بيانات السورة
+    surah_data = await load_surah_data(surah_number)
+    if not surah_data:
+        await query.edit_message_text("❌ خطأ في تحميل بيانات السورة")
+        return
+    
+    # الحصول على نطاق الصفحات للسورة
+    start_page, end_page = SURAH_PAGE_RANGES.get(surah_number, (1, 1))
+    
+    keyboard = []
+    
+    # إضافة زر الصفحة السابقة إذا لم نكن في الصفحة الأولى
+    if prev_page > start_page:
+        keyboard.append(InlineKeyboardButton("⬅️ الصفحة السابقة", callback_data=f"prev_image_page_{surah_number}_{prev_page}"))
+    
+    # إضافة زر الصفحة التالية
+    keyboard.append(InlineKeyboardButton("➡️ الصفحة التالية", callback_data=f"next_image_page_{surah_number}_{prev_page}"))
+    
+    # إضافة زر العودة
+    keyboard.append([InlineKeyboardButton("🔙 العودة للسور", callback_data="browse_quran_images")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    message_text = f"""
+📖 *{surah_data['name_arabic']}*
+🔢 *الصفحة {prev_page} من {end_page}*
+📍 *السورة رقم {surah_number}*
+📝 *عدد الآيات: {surah_data['ayahs_count']}*
+
+✨ *استمر في التصفح باستخدام الأزرار أدناه*
+    """
+    
+    # إرسال الصورة الجديدة
+    await context.bot.send_photo(
+        chat_id=query.message.chat_id,
+        photo=page_url,
+        caption=message_text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+    
+    # حذف الرسالة القديمة
+    await query.message.delete()
+
 async def read_surah(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """قراءة السورة كاملة"""
+    """قراءة السورة كاملة (نصي)"""
     query = update.callback_query
     await query.answer()
     
@@ -1338,14 +1658,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await check_subscription_callback(update, context)
     elif query.data == "browse_quran":
         await browse_quran(update, context)
+    elif query.data == "browse_quran_text":
+        await browse_quran_text(update, context)
+    elif query.data == "browse_quran_images":
+        await browse_quran_images(update, context)
     elif query.data.startswith("quran_page_"):
         await browse_page(update, context)
+    elif query.data.startswith("quran_image_page_"):
+        await browse_image_page(update, context)
     elif query.data == "browse_juz":
         await browse_juz(update, context)
     elif query.data.startswith("juz_page_"):
         await browse_juz_page(update, context)
     elif query.data.startswith("surah_"):
         await show_surah(update, context)
+    elif query.data.startswith("surah_image_"):
+        await show_surah_images(update, context)
+    elif query.data.startswith("next_image_page_"):
+        await next_image_page(update, context)
+    elif query.data.startswith("prev_image_page_"):
+        await prev_image_page(update, context)
     elif query.data.startswith("read_surah_"):
         await read_surah(update, context)
     elif query.data.startswith("continue_surah_"):
