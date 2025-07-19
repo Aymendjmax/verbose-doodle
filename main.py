@@ -74,7 +74,7 @@ async def fetch_json(url, headers=None):
     """جلب بيانات JSON من URL"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=15) as response:
+            async with session.get(url, headers=headers, timeout=25) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
@@ -91,7 +91,7 @@ async def post_json(url, data, headers=None):
     """إرسال طلب POST والحصول على JSON"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=data, headers=headers, timeout=15) as response:
+            async with session.post(url, data=data, headers=headers, timeout=25) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
@@ -776,7 +776,8 @@ async def show_reciters(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    surah_number = int(query.data.split('_')[2])
+    data = query.data.split('_')
+    surah_number = int(data[2]) if len(data) > 2 else int(data[1])
     
     # جلب القُراء المتاحين
     reciters = await load_reciters()
@@ -815,7 +816,10 @@ async def show_reciters(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    keyboard.append([InlineKeyboardButton("🔙 العودة للسور", callback_data="audio_menu")])
+    keyboard.append([
+        InlineKeyboardButton("🔙 العودة للسور", callback_data="audio_menu"),
+        InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
+    ])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -875,7 +879,10 @@ async def reciters_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    keyboard.append([InlineKeyboardButton("🔙 العودة للسور", callback_data="audio_menu")])
+    keyboard.append([
+        InlineKeyboardButton("🔙 العودة للسور", callback_data="audio_menu"),
+        InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
+    ])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -931,7 +938,7 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ تعذر العثور على التلاوة المطلوبة")
         return
     
-    # إرسال ملف الصوت
+    # إرسال ملف الصوت مع زيادة المهلة
     try:
         await context.bot.send_audio(
             chat_id=query.message.chat_id,
@@ -939,6 +946,10 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=f"🎧 سورة {surah_name} بصوت {reciter_name}",
             title=f"سورة {surah_name}",
             performer=reciter_name,
+            read_timeout=60,
+            write_timeout=60,
+            connect_timeout=60,
+            pool_timeout=60,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 العودة للقارئين", callback_data=f"reciters_{surah_number}")]
             ])
@@ -1049,21 +1060,31 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
     # تقسيم النتائج إذا كانت طويلة
     if len(results) > 4000:
         parts = [results[i:i+4000] for i in range(0, len(results), 4000)]
-        for i, part in enumerate(parts):
+        for part in parts:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{part}",
+                text=part,
                 parse_mode=ParseMode.MARKDOWN
             )
     else:
-        message = f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{results}\n\n"
-        message += "🌟 *يمكنك البحث مرة أخرى باستخدام /search*"
-        
         await context.bot.send_message(
             chat_id=chat_id,
-            text=message,
+            text=results,
             parse_mode=ParseMode.MARKDOWN
         )
+    
+    # إضافة أزرار البحث من جديد والعودة
+    keyboard = [
+        [InlineKeyboardButton("🔍 بحث جديد", callback_data="search_quran")],
+        [InlineKeyboardButton("🏠 العودة للرئيسية", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="🌟",
+        reply_markup=reply_markup
+    )
     
     # حذف رسالة "جاري البحث"
     await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
@@ -1251,7 +1272,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data.startswith("reciters_page_"):
         await reciters_page(update, context)
     elif query.data.startswith("reciters_"):
-        surah_number = int(query.data.split('_')[1])
         await show_reciters(update, context)
     elif query.data.startswith("play_audio_"):
         await play_audio(update, context)
