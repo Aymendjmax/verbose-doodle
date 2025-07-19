@@ -74,7 +74,7 @@ async def fetch_json(url, headers=None):
     """جلب بيانات JSON من URL"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=25) as response:
+            async with session.get(url, headers=headers, timeout=30) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
@@ -91,7 +91,7 @@ async def post_json(url, data, headers=None):
     """إرسال طلب POST والحصول على JSON"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=data, headers=headers, timeout=25) as response:
+            async with session.post(url, data=data, headers=headers, timeout=30) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
@@ -181,6 +181,29 @@ async def get_reciter_audio(reciter_id, surah_number):
                     # تنسيق رقم السورة (001, 002, ... 114)
                     surah_str = str(surah_number).zfill(3)
                     return f"{server}{surah_str}.mp3"
+    
+    # إذا لم نجد الرابط بالطريقة العادية، نبحث عن طريقة بديلة
+    for moshaf in reciter.get('moshaf', []):
+        if 'surah_list' in moshaf and str(surah_number) in moshaf['surah_list']:
+            server = moshaf.get('server')
+            if server:
+                # تجربة تنسيقات مختلفة
+                formats = [
+                    f"{server}{str(surah_number).zfill(3)}.mp3",
+                    f"{server}{surah_number}.mp3",
+                    f"{server}surah{surah_number}.mp3",
+                    f"{server}{surah_number:03d}.mp3"
+                ]
+                
+                # التحقق من وجود الملف في أحد التنسيقات
+                async with aiohttp.ClientSession() as session:
+                    for format in formats:
+                        try:
+                            async with session.head(format, timeout=10) as response:
+                                if response.status == 200:
+                                    return format
+                        except:
+                            continue
     
     return None
 
@@ -776,8 +799,15 @@ async def show_reciters(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    data = query.data.split('_')
-    surah_number = int(data[2]) if len(data) > 2 else int(data[1])
+    # استخراج رقم السورة من بيانات الـ callback
+    callback_data = query.data
+    if callback_data.startswith("audio_surah_"):
+        surah_number = int(callback_data.split('_')[2])
+    elif callback_data.startswith("reciters_"):
+        surah_number = int(callback_data.split('_')[1])
+    else:
+        await query.edit_message_text("❌ لم يتم تحديد السورة")
+        return
     
     # جلب القُراء المتاحين
     reciters = await load_reciters()
@@ -938,7 +968,7 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ تعذر العثور على التلاوة المطلوبة")
         return
     
-    # إرسال ملف الصوت مع زيادة المهلة
+    # إرسال ملف الصوت مع زيادة المهلة بشكل كبير
     try:
         await context.bot.send_audio(
             chat_id=query.message.chat_id,
@@ -946,10 +976,10 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=f"🎧 سورة {surah_name} بصوت {reciter_name}",
             title=f"سورة {surah_name}",
             performer=reciter_name,
-            read_timeout=60,
-            write_timeout=60,
-            connect_timeout=60,
-            pool_timeout=60,
+            read_timeout=90,
+            write_timeout=90,
+            connect_timeout=90,
+            pool_timeout=90,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 العودة للقارئين", callback_data=f"reciters_{surah_number}")]
             ])
@@ -959,7 +989,23 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
     except Exception as e:
         logger.error(f"خطأ في إرسال الصوت: {e}")
-        await query.edit_message_text("❌ حدث خطأ أثناء إرسال التلاوة. يرجى المحاولة لاحقاً.")
+        
+        # إذا فشل الإرسال، نرسل الرابط مباشرة كحل بديل
+        try:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=f"⚠️ تعذر إرسال الملف الصوتي مباشرةً.\n\n"
+                     f"🎧 يمكنك الاستماع للتلاوة من الرابط التالي:\n"
+                     f"{audio_url}\n\n"
+                     f"سورة {surah_name} بصوت {reciter_name}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 العودة للقارئين", callback_data=f"reciters_{surah_number}")]
+                ])
+            )
+            await context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
+        except Exception as e2:
+            logger.error(f"فشل إرسال الرابط: {e2}")
+            await query.edit_message_text("❌ حدث خطأ أثناء إرسال التلاوة والرابط. يرجى المحاولة لاحقاً.")
 
 async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بدء عملية البحث"""
