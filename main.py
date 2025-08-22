@@ -9,13 +9,10 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 from telegram.constants import ParseMode
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import threading
 import time
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from huggingface_hub import InferenceClient
-import uvicorn
 
 # إعداد التسجيل
 logging.basicConfig(
@@ -45,42 +42,42 @@ BASE_URL = "https://api.alquran.cloud/v1"
 # API الصوتيات الجديد
 AUDIO_API_URL = "https://www.mp3quran.net/api/v3/reciters?language=ar"
 
-# FastAPI app للـ ping
-fastapi_app = FastAPI()
+# Flask app للـ ping
+app = Flask(__name__)
 
-@fastapi_app.get("/")
-async def root():
-    return {"status": "البوت يعمل بنجاح! 🕊️", "bot": "سُطورٌ من السَّماء ☁️"}
+@app.route('/')
+def ping():
+    return jsonify({"status": "البوت يعمل بنجاح! 🕊️", "bot": "سُطورٌ من السَّماء ☁️"})
 
-@fastapi_app.get("/health")
-async def health():
-    return {"health": "ok", "timestamp": time.time()}
+@app.route('/health')
+def health():
+    return jsonify({"health": "ok", "timestamp": time.time()})
 
-class ChatRequest(BaseModel):
-    prompt: str
-    max_tokens: int = 200
-
-@fastapi_app.post("/chat")
-async def chat(request: ChatRequest):
+@app.route('/chat', methods=['POST'])
+def chat():
     try:
+        data = request.get_json()
+        prompt = data.get('prompt', '')
+        max_tokens = data.get('max_tokens', 200)
+        
         client = InferenceClient(api_key=HF_API_KEY)
         response = client.text_generation(
             model="meta-llama/Meta-Llama-3-8B-Instruct",
-            prompt=request.prompt,
-            max_new_tokens=request.max_tokens
+            prompt=prompt,
+            max_new_tokens=max_tokens
         )
-        return {"response": response}
+        return jsonify({"response": response})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500
 
-# تشغيل FastAPI في thread منفصل
-def run_fastapi():
-    uvicorn.run(fastapi_app, host='0.0.0.0', port=PORT, log_level="info")
+# تشغيل Flask في thread منفصل
+def run_flask():
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
 
-# بدء FastAPI server
-fastapi_thread = threading.Thread(target=run_fastapi)
-fastapi_thread.daemon = True
-fastapi_thread.start()
+# بدء Flask server
+flask_thread = threading.Thread(target=run_flask)
+flask_thread.daemon = True
+flask_thread.start()
 
 # الذاكرة المؤقتة للبيانات
 cache = {
@@ -325,7 +322,7 @@ async def check_subscription_callback(update: Update, context: ContextTypes.DEFA
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔔 اشترك في القناة", url=f"https://t.me/{CHANNEL_USERNAME}")],
-                [InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_subscription")]
+                [InlineKeyboardButton("✅ تحقق من الاشترak", callback_data="check_subscription")]
             ])
         )
 
@@ -1039,11 +1036,11 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = f"""
 ⚠️ *تعذر إرسال الملف الصوتي مباشرةً*
 
-🎧 **لكن يمكنك الاستماع للتلاوة من الرابط بعد الضغط على الزر*
+🎧 **لكن يمكنك الاستماع للتلاوة من الرابط بعد الضغط على الزر**
 
 📖 سورة *{surah_name}* بصوت *{reciter_name}*
 
-👨‍💻 **ملاحظة من المطور:*
+👨‍💻 **ملاحظة من المطور:**
 عذرا 🫠 ... لكن حقًا المشكلة ليست بيدي 🤷🏼‍♂️
 ببساطة، بعض السور الكبيرة لا يمكن إرسالها مباشرة بسبب قيود النظام 😐💔
 لكن لو جربت سورًا قصيرة ستجد أن البوت يرسلها بشكل طبيعي 😁🤝
