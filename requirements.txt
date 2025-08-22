@@ -3,3 +3,6 @@ aiohttp==3.9.5
 flask==3.0.3
 python-dotenv==1.0.1
 requests==2.31.0
+huggingface-hub==0.23.2
+fastapi==0.111.0
+uvicorn==0.30.1
