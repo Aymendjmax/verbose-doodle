@@ -26,8 +26,9 @@ CHANNEL_ID = os.getenv('CHANNEL_ID')
 DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 PORT = int(os.getenv('PORT', 5000))
-# تغيير API الذكاء الاصطناعي إلى الخدمة الجديدة
-AI_API_URL = "https://sii3.moayman.top/api/openai.php"
+# تغيير API الذكاء الاصطناعي إلى Google Gemini API
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 # تحويل CHANNEL_ID إلى عدد صحيح
 if CHANNEL_ID:
@@ -994,7 +995,7 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📖 *السورة:* {surah_name} ({surah_number})
 🕋 *عدد آياتها:* {surah_data['numberOfAyahs']}
 
-✨ *هل تود الاستماع إلى تلاوات أخرى؟*
+✨ *هل تود الاستماع إلى تلاوات أخرى?*
         """
         
         keyboard = [
@@ -1058,7 +1059,7 @@ async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['search_mode'] = True
 
 async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تنفيذ البحث في القرآن باستخدام ChatGPT API الجديد"""
+    """تنفيذ البحث في القرآن باستخدام Google Gemini API"""
     search_text = update.message.text.strip()
     
     if len(search_text) < 3:
@@ -1071,7 +1072,7 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إظهار حالة الكتابة بدلاً من رسالة "جاري البحث"
     await context.bot.send_chat_action(chat_id=update.message.chat_id, action=ChatAction.TYPING)
     
-    # إعداد بيانات الطلب لـ ChatGPT API الجديد مع أمر محدد
+    # إعداد بيانات الطلب لـ Google Gemini API
     prompt = f"""
 ابحث في القرآن الكريم عن: "{search_text}" وأعطني النتائج مباشرة مع ذكر السورة ورقم الآية والتفسير المختصر.
 لا تطرح أسئلة، فقط قدم النتائج مباشرة.
@@ -1079,48 +1080,56 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     
     payload = {
-        'gpt-5-mini': prompt
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.7,
+            "topK": 40,
+            "topP": 0.95,
+            "maxOutputTokens": 1024
+        }
     }
     
+    # URL مع المفتاح
+    url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
+    
     headers = {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'Content-Type': 'application/json'
     }
     
     # إرسال طلب البحث
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(AI_API_URL, data=payload, headers=headers, timeout=30) as response:
+            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
                 if response.status == 200:
-                    ai_reply = await response.text()
+                    result = await response.json()
+                    
+                    # استخراج النص من الاستجابة
+                    if 'candidates' in result and len(result['candidates']) > 0:
+                        candidate = result['candidates'][0]
+                        if 'content' in candidate and 'parts' in candidate['content']:
+                            ai_reply = candidate['content']['parts'][0]['text']
+                        else:
+                            ai_reply = None
+                    else:
+                        ai_reply = None
+                        
                 else:
+                    logger.error(f"خطأ في Gemini API: {response.status}")
                     ai_reply = None
+                    
     except Exception as e:
-        logger.error(f"خطأ في الاتصال بـ API البحث: {e}")
+        logger.error(f"خطأ في الاتصال بـ Gemini API: {e}")
         ai_reply = None
     
     if not ai_reply:
         await update.message.reply_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
         return
-    
-    # تنظيف النتائج من الرموز غير المرغوبة
-    if ai_reply.startswith('{'):
-        try:
-            data = json.loads(ai_reply)
-            # إذا كان JSON، نحاول استخراج النص من الحقول الشائعة
-            if 'response' in data:
-                ai_reply = data['response']
-            elif 'answer' in data:
-                ai_reply = data['answer']
-            elif 'text' in data:
-                ai_reply = data['text']
-            elif 'message' in data:
-                ai_reply = data['message']
-            else:
-                # إذا لم نجد حقلًا معروفًا، نستخدم JSON string
-                ai_reply = json.dumps(data, ensure_ascii=False)
-        except:
-            pass
     
     # إزالة أي أسئلة أو عبارات غير مرغوبة من الرد
     unwanted_phrases = [
@@ -1194,7 +1203,7 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{part}\n\n"
-                         "🌟 *هل تود البحث عن شيء آخر؟*",
+                         "🌟 *هل تود البحث عن شيء آخر?*",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=reply_markup
                 )
@@ -1208,7 +1217,7 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
         await context.bot.send_message(
             chat_id=chat_id,
             text=f"🔍 *نتائج البحث عن: \"{query}\"*\n\n{results}\n\n"
-                 "🌟 *هل تود البحث عن شيء آخر؟*",
+                 "🌟 *هل تود البحث عن شيء آخر?*",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
