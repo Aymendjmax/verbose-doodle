@@ -8,10 +8,14 @@ from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, 
     ContextTypes, MessageHandler, filters
 )
-from telegram.constants import ParseMode, ChatAction
+from telegram.constants import ParseMode
 from flask import Flask, jsonify
 import threading
 import time
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from huggingface_hub import InferenceClient
+import uvicorn
 
 # إعداد التسجيل
 logging.basicConfig(
@@ -26,8 +30,7 @@ CHANNEL_ID = os.getenv('CHANNEL_ID')
 DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 PORT = int(os.getenv('PORT', 5000))
-# تغيير API الذكاء الاصطناعي إلى الخدمة الجديدة
-AI_API_URL = "https://sii3.moayman.top/api/openai.php"
+HF_API_KEY = os.getenv("HF_API_KEY")
 
 # تحويل CHANNEL_ID إلى عدد صحيح
 if CHANNEL_ID:
@@ -42,25 +45,42 @@ BASE_URL = "https://api.alquran.cloud/v1"
 # API الصوتيات الجديد
 AUDIO_API_URL = "https://www.mp3quran.net/api/v3/reciters?language=ar"
 
-# Flask app للـ ping
-app = Flask(__name__)
+# FastAPI app للـ ping
+fastapi_app = FastAPI()
 
-@app.route('/')
-def ping():
-    return jsonify({"status": "البوت يعمل بنجاح! 🕊️", "bot": "سُطورٌ من السَّماء ☁️"})
+@fastapi_app.get("/")
+async def root():
+    return {"status": "البوت يعمل بنجاح! 🕊️", "bot": "سُطورٌ من السَّماء ☁️"}
 
-@app.route('/health')
-def health():
-    return jsonify({"health": "ok", "timestamp": time.time()})
+@fastapi_app.get("/health")
+async def health():
+    return {"health": "ok", "timestamp": time.time()}
 
-# تشغيل Flask في thread منفصل
-def run_flask():
-    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+class ChatRequest(BaseModel):
+    prompt: str
+    max_tokens: int = 200
 
-# بدء Flask server
-flask_thread = threading.Thread(target=run_flask)
-flask_thread.daemon = True
-flask_thread.start()
+@fastapi_app.post("/chat")
+async def chat(request: ChatRequest):
+    try:
+        client = InferenceClient(api_key=HF_API_KEY)
+        response = client.text_generation(
+            model="meta-llama/Meta-Llama-3-8B-Instruct",
+            prompt=request.prompt,
+            max_new_tokens=request.max_tokens
+        )
+        return {"response": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# تشغيل FastAPI في thread منفصل
+def run_fastapi():
+    uvicorn.run(fastapi_app, host='0.0.0.0', port=PORT, log_level="info")
+
+# بدء FastAPI server
+fastapi_thread = threading.Thread(target=run_fastapi)
+fastapi_thread.daemon = True
+fastapi_thread.start()
 
 # الذاكرة المؤقتة للبيانات
 cache = {
@@ -1019,11 +1039,11 @@ async def play_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = f"""
 ⚠️ *تعذر إرسال الملف الصوتي مباشرةً*
 
-🎧 **لكن يمكنك الاستماع للتلاوة من الرابط بعد الضغط على الزر**
+🎧 **لكن يمكنك الاستماع للتلاوة من الرابط بعد الضغط على الزر*
 
 📖 سورة *{surah_name}* بصوت *{reciter_name}*
 
-👨‍💻 **ملاحظة من المطور:**
+👨‍💻 **ملاحظة من المطور:*
 عذرا 🫠 ... لكن حقًا المشكلة ليست بيدي 🤷🏼‍♂️
 ببساطة، بعض السور الكبيرة لا يمكن إرسالها مباشرة بسبب قيود النظام 😐💔
 لكن لو جربت سورًا قصيرة ستجد أن البوت يرسلها بشكل طبيعي 😁🤝
@@ -1058,7 +1078,7 @@ async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['search_mode'] = True
 
 async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تنفيذ البحث في القرآن باستخدام ChatGPT API الجديد"""
+    """تنفيذ البحث في القرآن باستخدام LLaMA 3 API"""
     search_text = update.message.text.strip()
     
     if len(search_text) < 3:
@@ -1068,77 +1088,28 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # مسح حالة البحث
     context.user_data.pop('search_mode', None)
     
-    # إظهار حالة الكتابة بدلاً من رسالة "جاري البحث"
-    await context.bot.send_chat_action(chat_id=update.message.chat_id, action=ChatAction.TYPING)
+    # إعلام المستخدم بأن البحث جاري
+    msg = await update.message.reply_text("🔍 جاري البحث في القرآن الكريم...\n\n✨ سيتم إرسال النتائج قريباً")
     
-    # إعداد بيانات الطلب لـ ChatGPT API الجديد مع أمر محدد
-    prompt = f"""
-ابحث في القرآن الكريم عن: "{search_text}" وأعطني النتائج مباشرة مع ذكر السورة ورقم الآية والتفسير المختصر.
-لا تطرح أسئلة، فقط قدم النتائج مباشرة.
-أجب باللغة العربية فقط.
-    """
-    
-    payload = {
-        'gpt-5-mini': prompt
-    }
-    
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    # إرسال طلب البحث
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(AI_API_URL, data=payload, headers=headers, timeout=30) as response:
-                if response.status == 200:
-                    ai_reply = await response.text()
-                else:
-                    ai_reply = None
+        # استخدام LLaMA 3 للبحث
+        client = InferenceClient(api_key=HF_API_KEY)
+        prompt = f"ابحث في القرآن الكريم عن: {search_text}"
+        
+        response = client.text_generation(
+            model="meta-llama/Meta-Llama-3-8B-Instruct",
+            prompt=prompt,
+            max_new_tokens=200
+        )
+        
+        ai_reply = response
     except Exception as e:
-        logger.error(f"خطأ في الاتصال بـ API البحث: {e}")
+        logger.error(f"خطأ في نموذج LLaMA 3: {e}")
         ai_reply = None
     
     if not ai_reply:
-        await update.message.reply_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
+        await msg.edit_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
         return
-    
-    # تنظيف النتائج من الرموز غير المرغوبة
-    if ai_reply.startswith('{'):
-        try:
-            data = json.loads(ai_reply)
-            # إذا كان JSON، نحاول استخراج النص من الحقول الشائعة
-            if 'response' in data:
-                ai_reply = data['response']
-            elif 'answer' in data:
-                ai_reply = data['answer']
-            elif 'text' in data:
-                ai_reply = data['text']
-            elif 'message' in data:
-                ai_reply = data['message']
-            else:
-                # إذا لم نجد حقلًا معروفًا، نستخدم JSON string
-                ai_reply = json.dumps(data, ensure_ascii=False)
-        except:
-            pass
-    
-    # إزالة أي أسئلة أو عبارات غير مرغوبة من الرد
-    unwanted_phrases = [
-        "هل تقصدين", "هل تريدين", "أخبريني", "هل تريدي", "اقتراحات متابعة",
-        "هل تفضلين", "أبحث عن", "يمكنني", "هل ترغبين", "ما الذي"
-    ]
-    
-    for phrase in unwanted_phrases:
-        if phrase in ai_reply:
-            # نحاول استخراج الجزء بعد الأسئلة
-            parts = ai_reply.split(phrase)
-            if len(parts) > 1:
-                # نأخذ الجزء الأخير فقط
-                ai_reply = parts[-1].strip()
-                # إذا كان يبدأ بنقطتين أو فاصلة، نزيلها
-                if ai_reply.startswith(':') or ai_reply.startswith('،'):
-                    ai_reply = ai_reply[1:].strip()
-            break
     
     # حفظ النتائج في الذاكرة المؤقتة
     cache['search_results'][update.message.chat_id] = {
@@ -1147,7 +1118,7 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     # عرض النتائج
-    await show_search_results(update, context)
+    await show_search_results(update, context, msg.message_id)
 
 async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE, message_id=None):
     """عرض نتائج البحث"""
@@ -1168,15 +1139,6 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     results = search_data['results']
     query = search_data['query']
-    
-    # تنظيف النتائج من الرموز غير المرغوبة
-    if results.startswith('{'):
-        try:
-            data = json.loads(results)
-            if 'message' in data:
-                results = data['message']
-        except:
-            pass
     
     # إضافة أزرار البحث من جديد والعودة
     keyboard = [
@@ -1212,6 +1174,9 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
+    
+    # حذف رسالة "جاري البحث"
+    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """العودة للقائمة الرئيسية"""
