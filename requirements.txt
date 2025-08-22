@@ -1,6 +1,5 @@
 python-telegram-bot[job-queue]==20.6
 aiohttp==3.9.5
-flask==2.3.3
+flask==3.0.3
 python-dotenv==1.0.1
 requests==2.31.0
-huggingface-hub==0.19.4
