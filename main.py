@@ -9,10 +9,9 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 from telegram.constants import ParseMode
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 import threading
 import time
-from huggingface_hub import InferenceClient
 
 # إعداد التسجيل
 logging.basicConfig(
@@ -27,7 +26,8 @@ CHANNEL_ID = os.getenv('CHANNEL_ID')
 DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 PORT = int(os.getenv('PORT', 5000))
-HF_API_KEY = os.getenv("HF_API_KEY")
+# تغيير API الذكاء الاصطناعي إلى الخدمة الجديدة
+AI_API_URL = "https://sii3.moayman.top/api/openai.php"
 
 # تحويل CHANNEL_ID إلى عدد صحيح
 if CHANNEL_ID:
@@ -52,23 +52,6 @@ def ping():
 @app.route('/health')
 def health():
     return jsonify({"health": "ok", "timestamp": time.time()})
-
-@app.route('/chat', methods=['POST'])
-def chat():
-    try:
-        data = request.get_json()
-        prompt = data.get('prompt', '')
-        max_tokens = data.get('max_tokens', 200)
-        
-        client = InferenceClient(api_key=HF_API_KEY)
-        response = client.text_generation(
-            model="meta-llama/Meta-Llama-3-8B-Instruct",
-            prompt=prompt,
-            max_new_tokens=max_tokens
-        )
-        return jsonify({"response": response})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # تشغيل Flask في thread منفصل
 def run_flask():
@@ -322,7 +305,7 @@ async def check_subscription_callback(update: Update, context: ContextTypes.DEFA
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔔 اشترك في القناة", url=f"https://t.me/{CHANNEL_USERNAME}")],
-                [InlineKeyboardButton("✅ تحقق من الاشترak", callback_data="check_subscription")]
+                [InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_subscription")]
             ])
         )
 
@@ -1075,7 +1058,7 @@ async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['search_mode'] = True
 
 async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تنفيذ البحث في القرآن باستخدام LLaMA 3 API"""
+    """تنفيذ البحث في القرآن باستخدام ChatGPT API الجديد"""
     search_text = update.message.text.strip()
     
     if len(search_text) < 3:
@@ -1088,25 +1071,50 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إعلام المستخدم بأن البحث جاري
     msg = await update.message.reply_text("🔍 جاري البحث في القرآن الكريم...\n\n✨ سيتم إرسال النتائج قريباً")
     
+    # إعداد بيانات الطلب لـ ChatGPT API الجديد
+    payload = {
+        'gpt-5-mini': f"ابحث في القرآن الكريم عن: {search_text}"
+    }
+    
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    # إرسال طلب البحث
     try:
-        # استخدام LLaMA 3 للبحث
-        client = InferenceClient(api_key=HF_API_KEY)
-        prompt = f"ابحث في القرآن الكريم عن: {search_text}"
-        
-        response = client.text_generation(
-            model="meta-llama/Meta-Llama-3-8B-Instruct",
-            prompt=prompt,
-            max_new_tokens=200
-        )
-        
-        ai_reply = response
+        async with aiohttp.ClientSession() as session:
+            async with session.post(AI_API_URL, data=payload, headers=headers, timeout=30) as response:
+                if response.status == 200:
+                    ai_reply = await response.text()
+                else:
+                    ai_reply = None
     except Exception as e:
-        logger.error(f"خطأ في نموذج LLaMA 3: {e}")
+        logger.error(f"خطأ في الاتصال بـ API البحث: {e}")
         ai_reply = None
     
     if not ai_reply:
         await msg.edit_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
         return
+    
+    # تنظيف النتائج من الرموز غير المرغوبة
+    if ai_reply.startswith('{'):
+        try:
+            data = json.loads(ai_reply)
+            # إذا كان JSON، نحاول استخراج النص من الحقول الشائعة
+            if 'response' in data:
+                ai_reply = data['response']
+            elif 'answer' in data:
+                ai_reply = data['answer']
+            elif 'text' in data:
+                ai_reply = data['text']
+            elif 'message' in data:
+                ai_reply = data['message']
+            else:
+                # إذا لم نجد حقلًا معروفًا، نستخدم JSON string
+                ai_reply = json.dumps(data, ensure_ascii=False)
+        except:
+            pass
     
     # حفظ النتائج في الذاكرة المؤقتة
     cache['search_results'][update.message.chat_id] = {
@@ -1136,6 +1144,15 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     results = search_data['results']
     query = search_data['query']
+    
+    # تنظيف النتائج من الرموز غير المرغوبة
+    if results.startswith('{'):
+        try:
+            data = json.loads(results)
+            if 'message' in data:
+                results = data['message']
+        except:
+            pass
     
     # إضافة أزرار البحث من جديد والعودة
     keyboard = [
