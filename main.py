@@ -8,7 +8,7 @@ from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, 
     ContextTypes, MessageHandler, filters
 )
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
 from flask import Flask, jsonify
 import threading
 import time
@@ -1068,12 +1068,18 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # مسح حالة البحث
     context.user_data.pop('search_mode', None)
     
-    # إعلام المستخدم بأن البحث جاري
-    msg = await update.message.reply_text("🔍 جاري البحث في القرآن الكريم...\n\n✨ سيتم إرسال النتائج قريباً")
+    # إظهار حالة الكتابة بدلاً من رسالة "جاري البحث"
+    await context.bot.send_chat_action(chat_id=update.message.chat_id, action=ChatAction.TYPING)
     
-    # إعداد بيانات الطلب لـ ChatGPT API الجديد
+    # إعداد بيانات الطلب لـ ChatGPT API الجديد مع أمر محدد
+    prompt = f"""
+ابحث في القرآن الكريم عن: "{search_text}" وأعطني النتائج مباشرة مع ذكر السورة ورقم الآية والتفسير المختصر.
+لا تطرح أسئلة، فقط قدم النتائج مباشرة.
+أجب باللغة العربية فقط.
+    """
+    
     payload = {
-        'gpt-5-mini': f"ابحث في القرآن الكريم عن: {search_text}"
+        'gpt-5-mini': prompt
     }
     
     headers = {
@@ -1094,7 +1100,7 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ai_reply = None
     
     if not ai_reply:
-        await msg.edit_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
+        await update.message.reply_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
         return
     
     # تنظيف النتائج من الرموز غير المرغوبة
@@ -1116,6 +1122,24 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
     
+    # إزالة أي أسئلة أو عبارات غير مرغوبة من الرد
+    unwanted_phrases = [
+        "هل تقصدين", "هل تريدين", "أخبريني", "هل تريدي", "اقتراحات متابعة",
+        "هل تفضلين", "أبحث عن", "يمكنني", "هل ترغبين", "ما الذي"
+    ]
+    
+    for phrase in unwanted_phrases:
+        if phrase in ai_reply:
+            # نحاول استخراج الجزء بعد الأسئلة
+            parts = ai_reply.split(phrase)
+            if len(parts) > 1:
+                # نأخذ الجزء الأخير فقط
+                ai_reply = parts[-1].strip()
+                # إذا كان يبدأ بنقطتين أو فاصلة، نزيلها
+                if ai_reply.startswith(':') or ai_reply.startswith('،'):
+                    ai_reply = ai_reply[1:].strip()
+            break
+    
     # حفظ النتائج في الذاكرة المؤقتة
     cache['search_results'][update.message.chat_id] = {
         'results': ai_reply,
@@ -1123,7 +1147,7 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     # عرض النتائج
-    await show_search_results(update, context, msg.message_id)
+    await show_search_results(update, context)
 
 async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE, message_id=None):
     """عرض نتائج البحث"""
@@ -1188,9 +1212,6 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
-    
-    # حذف رسالة "جاري البحث"
-    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """العودة للقائمة الرئيسية"""
