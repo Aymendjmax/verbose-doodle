@@ -26,7 +26,8 @@ CHANNEL_ID = os.getenv('CHANNEL_ID')
 DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 PORT = int(os.getenv('PORT', 5000))
-AI_API_URL = "https://chatgpt5free.com/wp-admin/admin-ajax.php"
+# API الذكاء الاصطناعي الجديد
+NEW_AI_API_URL = "https://sii3.moayman.top/api/gpt-oss.php"
 
 # تحويل CHANNEL_ID إلى عدد صحيح
 if CHANNEL_ID:
@@ -1057,7 +1058,7 @@ async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['search_mode'] = True
 
 async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تنفيذ البحث في القرآن باستخدام ChatGPT API"""
+    """تنفيذ البحث في القرآن باستخدام ChatGPT API الجديد"""
     search_text = update.message.text.strip()
     
     if len(search_text) < 3:
@@ -1070,37 +1071,26 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إعلام المستخدم بأن البحث جاري
     msg = await update.message.reply_text("🔍 جاري البحث في القرآن الكريم...\n\n✨ سيتم إرسال النتائج قريباً")
     
-    # إعداد بيانات الطلب لـ ChatGPT API
-    payload = {
-        'action': 'ai_chat',
-        'message': f"ابحث في القرآن الكريم عن: {search_text}"
-    }
-    
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    # إرسال طلب البحث
+    # استخدام API الجديد للبحث
     try:
+        # بناء رابط API مع النص المطلوب للبحث
+        encoded_text = search_text.replace(' ', '%20')
+        api_url = f"{NEW_AI_API_URL}?120b={encoded_text}"
+        
         async with aiohttp.ClientSession() as session:
-            async with session.post(AI_API_URL, data=payload, headers=headers, timeout=30) as response:
+            async with session.get(api_url, timeout=30) as response:
                 if response.status == 200:
-                    data = await response.json()
-                    ai_reply = data.get('data', '') if data else None
+                    ai_reply = await response.text()
                 else:
                     ai_reply = None
+                    logger.error(f"خطأ في API الجديد: {response.status}")
     except Exception as e:
-        logger.error(f"خطأ في الاتصال بـ API البحث: {e}")
+        logger.error(f"خطأ في الاتصال بـ API البحث الجديد: {e}")
         ai_reply = None
     
     if not ai_reply:
         await msg.edit_text("❌ لم أتمكن من العثور على نتائج لبحثك. يرجى المحاولة مرة أخرى.")
         return
-    
-    # استخراج الرسالة من الرد
-    if isinstance(ai_reply, dict) and 'message' in ai_reply:
-        ai_reply = ai_reply['message']
     
     # حفظ النتائج في الذاكرة المؤقتة
     cache['search_results'][update.message.chat_id] = {
@@ -1130,15 +1120,6 @@ async def show_search_results(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     results = search_data['results']
     query = search_data['query']
-    
-    # تنظيف النتائج من الرموز غير المرغوبة
-    if results.startswith('{'):
-        try:
-            data = json.loads(results)
-            if 'message' in data:
-                results = data['message']
-        except:
-            pass
     
     # إضافة أزرار البحث من جديد والعودة
     keyboard = [
