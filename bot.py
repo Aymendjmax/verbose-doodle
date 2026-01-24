@@ -10,9 +10,11 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 from telegram.constants import ParseMode, ChatAction
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, render_template_string
 import threading
 import time
+import sys
+import socket
 
 # إعداد التسجيل
 logging.basicConfig(
@@ -23,13 +25,39 @@ logger = logging.getLogger(__name__)
 
 # متغيرات البيئة
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    logger.error("❌ BOT_TOKEN غير موجود! الرجاء تعيينه في متغيرات البيئة")
+    sys.exit(1)
+
 CHANNEL_ID = os.getenv('CHANNEL_ID')
-DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME')
-CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
+DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME', 'your_developer_username')
+CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME', 'your_channel_username')
 PORT = int(os.getenv('PORT', 5000))
+RENDER_EXTERNAL_URL = os.getenv('RENDER_EXTERNAL_URL', '')
+
 # تغيير API الذكاء الاصطناعي إلى Google Gemini API
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+if not GEMINI_API_KEY:
+    logger.warning("⚠️ GEMINI_API_KEY غير موجود - ميزة البحث الذكي غير متاحة")
+else:
+    logger.info("✅ GEMINI_API_KEY موجود - البحث الذكي متاح")
+
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+# الحصول على عنوان الويب تلقائياً
+if RENDER_EXTERNAL_URL:
+    BASE_WEB_URL = RENDER_EXTERNAL_URL.rstrip('/')
+    logger.info(f"🌐 استخدام عنوان Render: {BASE_WEB_URL}")
+else:
+    try:
+        # محاولة الحصول على عنوان IP
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+        BASE_WEB_URL = f"http://{local_ip}:{PORT}"
+        logger.info(f"🌐 استخدام العنوان المحلي: {BASE_WEB_URL}")
+    except:
+        BASE_WEB_URL = f"http://localhost:{PORT}"
+        logger.info(f"🌐 استخدام localhost: {BASE_WEB_URL}")
 
 # تحويل CHANNEL_ID إلى عدد صحيح
 if CHANNEL_ID:
@@ -83,11 +111,23 @@ app = Flask(__name__)
 
 @app.route('/')
 def ping():
-    return jsonify({"status": "البوت يعمل بنجاح! 🕊️", "bot": "سُطورٌ من السَّماء ☁️"})
+    return jsonify({
+        "status": "البوت يعمل بنجاح! 🕊️", 
+        "bot": "سُطورٌ من السَّماء ☁️",
+        "services": {
+            "quran_text": "متاح",
+            "quran_images": "متاح",
+            "radio": "متاح",
+            "search": "متاح" if GEMINI_API_KEY else "غير متاح",
+            "audio": "متاح",
+            "juz": "متاح"
+        }
+    })
 
 @app.route('/radio')
 def radio():
-    return send_from_directory('.', 'radio.html')
+    """صفحة الراديو المباشر"""
+    return render_template_string(RADIO_HTML)
 
 @app.route('/health')
 def health():
@@ -111,6 +151,623 @@ cache = {
     'search_results': {}
 }
 
+# HTML للراديو مباشرة في الكود
+RADIO_HTML = '''
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>راديو سطور من السماء - بث مباشر</title>
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Tajawal:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-blue: #1e69b5;
+            --light-blue: #4a90e2;
+            --sky-blue: #87ceeb;
+            --white: #ffffff;
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --accent-glow: rgba(255, 255, 255, 0.5);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background: radial-gradient(circle at center, #1e4d8c 0%, #0d2a4d 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            color: var(--white);
+            position: relative;
+            padding: 20px;
+        }
+
+        /* Background Canvas */
+        #starCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+
+        .container {
+            position: relative;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid var(--glass-border);
+            border-radius: 30px;
+            padding: 30px 25px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .logo-container {
+            margin-bottom: 20px;
+        }
+
+        .logo-circle {
+            width: 150px;
+            height: 150px;
+            margin: 0 auto;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            padding: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            position: relative;
+            transition: all 0.4s ease;
+            overflow: hidden;
+        }
+
+        .logo-circle.playing {
+            animation: pulseGlow 2s infinite;
+            border-color: var(--white);
+        }
+
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3); }
+            70% { box-shadow: 0 0 0 15px rgba(255, 255, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+
+        .logo-circle img {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+            display: block;
+        }
+
+        h1 {
+            font-family: 'Amiri', serif;
+            font-size: 1.8rem;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            font-weight: 300;
+            font-size: 0.9rem;
+            margin-bottom: 25px;
+            opacity: 0.7;
+            letter-spacing: 1px;
+        }
+
+        /* Controls Box */
+        .controls-wrapper {
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 25px;
+            padding: 20px 15px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.02);
+            margin-bottom: 20px;
+        }
+
+        .main-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn {
+            background: none;
+            border: none;
+            color: var(--white);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            outline: none;
+        }
+
+        .btn:focus {
+            outline: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .btn-skip {
+            width: 45px;
+            height: 45px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            font-size: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-skip:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.05);
+        }
+
+        .btn-play {
+            width: 70px;
+            height: 70px;
+            background: var(--white);
+            color: var(--primary-blue);
+            border-radius: 50%;
+            font-size: 1.6rem;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-play:hover {
+            transform: scale(1.05);
+            background: #f8f9fa;
+        }
+
+        .skip-text {
+            font-size: 0.7rem;
+            font-weight: bold;
+            opacity: 0.8;
+        }
+
+        /* Volume Section */
+        .volume-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 0 10px;
+        }
+
+        .volume-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.65rem;
+            opacity: 0.6;
+            font-weight: bold;
+            padding: 0 5px;
+        }
+
+        .volume-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: relative;
+        }
+
+        .volume-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 5px;
+            border-radius: 8px;
+            background: linear-gradient(to left, rgba(255,255,255,0.4) var(--volume-percent), rgba(255,255,255,0.1) var(--volume-percent));
+            outline: none;
+            cursor: pointer;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--white);
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(0,0,0,0.5);
+            border: 2px solid var(--light-blue);
+        }
+
+        .vol-icon {
+            font-size: 0.9rem;
+            width: 18px;
+            text-align: center;
+            opacity: 0.8;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 6px 15px;
+            border-radius: 25px;
+            font-size: 0.8rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .dot {
+            width: 7px;
+            height: 7px;
+            background: #ff4b2b;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #ff4b2b;
+        }
+
+        .dot.active {
+            animation: pulse-dot 1.5s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.5; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Tooltip style labels */
+        .btn-label {
+            font-size: 0.55rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            opacity: 0.5;
+        }
+
+        /* Loading State */
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        /* Error Message */
+        .error-message {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid rgba(255, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 0.8rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="starCanvas"></canvas>
+
+    <div class="container">
+        <div class="logo-container">
+            <div class="logo-circle" id="logoCircle">
+                <img src="https://i.postimg.cc/Qt8hQG08/IMG-20250905-074700-225.jpg" alt="Logo" onerror="this.src='https://via.placeholder.com/150/1e69b5/ffffff?text=Quran+Radio'">
+            </div>
+        </div>
+
+        <h1>سطور من السماء</h1>
+        <p class="subtitle">راديو القرآن الكريم المباشر</p>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="controls-wrapper">
+            <!-- Main Controls -->
+            <div class="main-controls">
+                <div class="control-group">
+                    <span class="btn-label">رجوع</span>
+                    <button class="btn btn-skip" id="backwardBtn">
+                        <i class="fas fa-backward-step"></i>
+                    </button>
+                    <span class="skip-text">10 ثواني</span>
+                </div>
+
+                <div class="control-group">
+                    <span class="btn-label">تشغيل</span>
+                    <button class="btn btn-play" id="playPauseBtn">
+                        <i class="fas fa-play" id="playIcon"></i>
+                    </button>
+                    <span class="skip-text" id="playLabel">بدء البث</span>
+                </div>
+
+                <div class="control-group">
+                    <span class="btn-label">تقديم</span>
+                    <button class="btn btn-skip" id="forwardBtn">
+                        <i class="fas fa-forward-step"></i>
+                    </button>
+                    <span class="skip-text">10 ثواني</span>
+                </div>
+            </div>
+
+            <!-- Volume Section -->
+            <div class="volume-section">
+                <div class="volume-labels">
+                    <span>خفـض الصـوت</span>
+                    <span>رفـع الصـوت</span>
+                </div>
+                <div class="volume-bar-container">
+                    <i class="fas fa-volume-low vol-icon"></i>
+                    <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.01" value="0.8" style="--volume-percent: 80%;">
+                    <i class="fas fa-volume-high vol-icon"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-badge">
+            <span class="dot active" id="statusDot"></span>
+            <span id="statusText">جاهز للبث المباشر</span>
+        </div>
+    </div>
+
+    <audio id="radioPlayer" preload="auto" crossorigin="anonymous">
+        <source src="https://quran.yousefheiba.com/api/radio" type="audio/mpeg">
+    </audio>
+
+    <script>
+        // --- Background Animation ---
+        const canvas = document.getElementById('starCanvas');
+        const ctx = canvas.getContext('2d');
+        let stars = [];
+        let animationId = null;
+
+        function initCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            stars = [];
+            for (let i = 0; i < 80; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 1.2,
+                    opacity: Math.random() * 0.5 + 0.3,
+                    speed: 0.003 + Math.random() * 0.005
+                });
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "white";
+            stars.forEach(s => {
+                ctx.globalAlpha = s.opacity;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                ctx.fill();
+                s.opacity += s.speed;
+                if (s.opacity > 0.8 || s.opacity < 0.3) s.speed = -s.speed;
+            });
+
+            // Geometric lines
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+            ctx.lineWidth = 0.3;
+            for (let i = 0; i < stars.length; i++) {
+                for (let j = i + 1; j < stars.length; j++) {
+                    let d = Math.hypot(stars[i].x - stars[j].x, stars[i].y - stars[j].y);
+                    if (d < 100) {
+                        ctx.beginPath();
+                        ctx.moveTo(stars[i].x, stars[i].y);
+                        ctx.lineTo(stars[j].x, stars[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+            animationId = requestAnimationFrame(draw);
+        }
+
+        function stopAnimation() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            initCanvas();
+            draw();
+        });
+
+        // --- Audio Logic ---
+        const audio = document.getElementById('radioPlayer');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const playIcon = document.getElementById('playIcon');
+        const playLabel = document.getElementById('playLabel');
+        const logoCircle = document.getElementById('logoCircle');
+        const volumeSlider = document.getElementById('volumeSlider');
+        const statusText = document.getElementById('statusText');
+        const statusDot = document.getElementById('statusDot');
+        const errorMessage = document.getElementById('errorMessage');
+        const forwardBtn = document.getElementById('forwardBtn');
+        const backwardBtn = document.getElementById('backwardBtn');
+
+        let isPlaying = false;
+        let isLoading = false;
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            setTimeout(() => {
+                errorMessage.style.display = 'none';
+            }, 5000);
+        }
+
+        function updateUI(playing, loading = false) {
+            if (loading) {
+                playPauseBtn.classList.add('loading');
+                playIcon.className = 'fas fa-spinner fa-spin';
+                playLabel.innerText = 'جاري التحميل...';
+                statusText.innerText = 'جاري الاتصال بالخادم...';
+                statusDot.style.background = '#ffa500';
+                return;
+            }
+
+            playPauseBtn.classList.remove('loading');
+            
+            if (playing) {
+                playIcon.className = 'fas fa-pause';
+                playLabel.innerText = 'إيقاف مؤقت';
+                logoCircle.classList.add('playing');
+                statusText.innerText = 'بث مباشر الآن';
+                statusDot.style.background = '#00ff00';
+                statusDot.classList.add('active');
+            } else {
+                playIcon.className = 'fas fa-play';
+                playLabel.innerText = 'تشغيل البث';
+                logoCircle.classList.remove('playing');
+                statusText.innerText = 'البث متوقف';
+                statusDot.style.background = '#ff4b2b';
+                statusDot.classList.remove('active');
+            }
+        }
+
+        async function playRadio() {
+            if (isLoading) return;
+            
+            try {
+                isLoading = true;
+                updateUI(false, true);
+                
+                // إضافة timestamp لمنع التخزين المؤقت
+                const timestamp = new Date().getTime();
+                audio.src = `https://quran.yousefheiba.com/api/radio?t=${timestamp}`;
+                
+                // محاولة التشغيل
+                await audio.play();
+                
+                isPlaying = true;
+                isLoading = false;
+                updateUI(true);
+                
+                // بدء الرسوم المتحركة إذا لم تكن تعمل
+                if (!animationId) {
+                    initCanvas();
+                    draw();
+                }
+                
+            } catch (error) {
+                console.error('Playback error:', error);
+                isLoading = false;
+                isPlaying = false;
+                updateUI(false);
+                
+                if (error.name === 'NotAllowedError') {
+                    showError('❌ تم رفض الإذن للتشغيل. يرجى النقر على الصفحة أولاً أو التحقق من إعدادات الصوت.');
+                } else if (error.name === 'NotSupportedError') {
+                    showError('❌ تنسيق الصوت غير مدعوم. حاول استخدام متصفح مختلف.');
+                } else if (error.name === 'NetworkError') {
+                    showError('❌ خطأ في الشبكة. تحقق من اتصال الإنترنت.');
+                } else {
+                    showError(`❌ خطأ في التشغيل: ${error.message}`);
+                }
+            }
+        }
+
+        function pauseRadio() {
+            audio.pause();
+            isPlaying = false;
+            updateUI(false);
+        }
+
+        playPauseBtn.addEventListener('click', () => {
+            if (isPlaying) {
+                pauseRadio();
+            } else {
+                playRadio();
+            }
+        });
+
+        forwardBtn.addEventListener('click', () => {
+            if (isPlaying && !isNaN(audio.duration)) {
+                audio.currentTime = Math.min(audio.currentTime + 10, audio.duration);
+            }
+        });
+
+        backwardBtn.addEventListener('click', () => {
+            if (isPlaying) {
+                audio.currentTime = Math.max(audio.currentTime - 10, 0);
+            }
+        });
+
+        volumeSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            audio.volume = val;
+            // Update CSS variable for progress bar effect
+            volumeSlider.style.setProperty('--volume-percent', (val * 100) + '%');
+        });
+
+        // Event Listeners for Audio
+        audio.addEventListener('waiting', () => {
+            statusText.innerText = 'جاري التخزين المؤقت...';
+        });
+
+        audio.addEventListener('playing', () => {
+            statusText.innerText = 'بث مباشر الآن';
+        });
+
+        audio.addEventListener('error', (e) => {
+            console.error('Audio error:', e);
+            isLoading = false;
+            isPlaying = false;
+            updateUI(false);
+            showError('❌ خطأ في مصدر الصوت. حاول تحديث الصفحة.');
+        });
+
+        audio.addEventListener('ended', () => {
+            isPlaying = false;
+            updateUI(false);
+        });
+
+        // تحميل الصفحة
+        window.addEventListener('load', () => {
+            initCanvas();
+            draw();
+            
+            // اختبار الاتصال
+            audio.volume = volumeSlider.value;
+            
+            // عرض رسالة ترحيب
+            setTimeout(() => {
+                statusText.innerHTML = '✨ اضغط على زر التشغيل للاستماع';
+            }, 1000);
+        });
+
+        // تنظيف عند إغلاق الصفحة
+        window.addEventListener('beforeunload', () => {
+            pauseRadio();
+            stopAnimation();
+        });
+
+        // إضافة تفاعل للنقر الأول للتغلب على قيود التشغيل التلقائي
+        document.addEventListener('click', function firstClick() {
+            audio.volume = 0.1;
+            document.removeEventListener('click', firstClick);
+        }, { once: true });
+    </script>
+</body>
+</html>
+'''
+
 async def fetch_json(url, headers=None):
     """جلب بيانات JSON من URL"""
     try:
@@ -132,7 +789,7 @@ async def post_json(url, data, headers=None):
     """إرسال طلب POST والحصول على JSON"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=data, headers=headers, timeout=30) as response:
+            async with session.post(url, json=data, headers=headers, timeout=30) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
@@ -290,10 +947,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_name = update.effective_user.first_name
     
-    # إنشاء زر الراديو كزر ويب مع تصميم مميز
+    # إنشاء زر الراديو كزر ويب
     radio_button = InlineKeyboardButton(
         "📻 راديو سطور من السماء", 
-        web_app={"url": f"https://{os.getenv('REPLIT_DEV_DOMAIN', 'your-replit-domain.herokuapp.com')}/radio"}
+        web_app={"url": f"{BASE_WEB_URL}/radio"}
     )
     
     keyboard = [
@@ -402,7 +1059,7 @@ async def start_from_callback(query, context):
     # إنشاء زر الراديو كزر ويب
     radio_button = InlineKeyboardButton(
         "📻 راديو سطور من السماء", 
-        web_app={"url": f"https://{os.getenv('REPLIT_DEV_DOMAIN', 'your-replit-domain.herokuapp.com')}/radio"}
+        web_app={"url": f"{BASE_WEB_URL}/radio"}
     )
     
     keyboard = [
@@ -1632,6 +2289,24 @@ async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    # التحقق من وجود مفتاح API
+    if not GEMINI_API_KEY:
+        await query.edit_message_text(
+            "⚠️ *ميزة البحث الذكي غير متاحة حالياً*\n\n"
+            "🔧 **السبب:** لم يتم إعداد مفتاح Google Gemini API.\n\n"
+            "💡 **ماذا يمكنك أن تفعل؟**\n"
+            "• استخدم الميزات الأخرى للبوت\n"
+            "• تواصل مع المطور لإضافة المفتاح\n"
+            "• جرب البحث عن طريق تصفح السور مباشرة\n\n"
+            "🌟 **الميزات المتاحة:**\n"
+            "• 📖 تصفح كامل القرآن\n"
+            "• 📻 راديو مباشر\n"
+            "• 🎵 مكتبة التلاوات\n"
+            "• 📚 تصفح الأجزاء والأحزاب",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
     await query.edit_message_text(
         "🔍 *البحث الذكي في القرآن الكريم*\n\n"
         "🌟 **مميزات البحث:**\n"
@@ -1643,7 +2318,8 @@ async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 'الرحمن الرحيم'\n"
         "• 'الصبر واليقين'\n"
         "• 'الجنة والنار'\n"
-        "• 'التوبة والمغفرة'\n\n"
+        "• 'التوبة والمغفرة'\n"
+        "• 'آيات عن الصلاة'\n\n"
         "✨ **اكتب الكلمة أو الجملة التي تريد البحث عنها:**\n\n"
         "💡 **تلميح:** كلما كانت الكلمة أكثر تحديداً، كانت النتائج أدق.",
         parse_mode=ParseMode.MARKDOWN
@@ -1652,6 +2328,19 @@ async def search_quran(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تنفيذ البحث في القرآن باستخدام Google Gemini API"""
+    
+    # تحقق من وجود مفتاح API
+    if not GEMINI_API_KEY:
+        await update.message.reply_text(
+            "⚠️ **عذراً:** ميزة البحث الذكي غير متاحة حالياً.\n\n"
+            "🔧 **السبب:** لم يتم تعيين مفتاح Google Gemini API.\n\n"
+            "💡 **ماذا يمكنك أن تفعل؟**\n"
+            "• استخدم ميزات البوت الأخرى المتاحة\n"
+            "• تواصل مع المطور لإضافة المفتاح\n"
+            "• جرب البحث عن طريق كلمات محددة يدوياً"
+        )
+        return
+    
     search_text = update.message.text.strip()
     
     if len(search_text) < 3:
@@ -1661,13 +2350,19 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # مسح حالة البحث
     context.user_data.pop('search_mode', None)
     
-    # إظهار حالة الكتابة بدلاً من رسالة "جاري البحث"
-    await context.bot.send_chat_action(chat_id=update.message.chat_id, action=ChatAction.TYPING)
+    # إعلام المستخدم بأن البحث جارٍ
+    processing_msg = await update.message.reply_text("🔍 **جاري البحث...**\n\n⏳ يرجى الانتظار قليلاً...")
     
     # إعداد بيانات الطلب لـ Google Gemini API
     prompt = f"""
-ابحث في القرآن الكريم عن: "{search_text}" وأعطني النتائج مباشرة مع ذكر السورة ورقم الآية والتفسير المختصر.
-لا تطرح أسئلة، فقط قدم النتائج مباشرة.
+أنت مساعد متخصص في القرآن الكريم. 
+ابحث في القرآن عن: "{search_text}"
+أعطني النتائج مباشرة مع ذكر:
+1. السورة ورقم الآية
+2. نص الآية
+3. تفسير مختصر (سطرين كحد أقصى)
+
+إجابة مباشرة بدون مقدمة أو خاتمة.
 أجب باللغة العربية فقط.
     """
     
@@ -1684,7 +2379,25 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "topK": 40,
             "topP": 0.95,
             "maxOutputTokens": 1024
-        }
+        },
+        "safetySettings": [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_NONE"
+            }
+        ]
     }
     
     # URL مع المفتاح
@@ -1697,9 +2410,10 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إرسال طلب البحث
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
+            async with session.post(url, json=payload, headers=headers, timeout=45) as response:
                 if response.status == 200:
                     result = await response.json()
+                    logger.info(f"Gemini API Response: {json.dumps(result, ensure_ascii=False)[:500]}")
                     
                     # استخراج النص من الاستجابة
                     if 'candidates' in result and len(result['candidates']) > 0:
@@ -1707,39 +2421,54 @@ async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if 'content' in candidate and 'parts' in candidate['content']:
                             ai_reply = candidate['content']['parts'][0]['text']
                         else:
-                            ai_reply = None
+                            ai_reply = "❌ **عذراً:** لم أتمكن من استخراج النتائج من الرد."
                     else:
-                        ai_reply = None
+                        ai_reply = "❌ **عذراً:** لم أتلق أي نتائج من API."
                         
+                elif response.status == 400:
+                    ai_reply = "❌ **خطأ في الطلب:** ربما البحث يحتوي على محتوى غير مسموح به."
+                elif response.status == 401:
+                    ai_reply = "❌ **خطأ في المصادقة:** مفتاح API غير صالح أو منتهي الصلاحية."
+                elif response.status == 429:
+                    ai_reply = "❌ **تجاوز الحد:** تم تجاوز عدد الطلبات المسموح بها. يرجى المحاولة لاحقاً."
                 else:
-                    logger.error(f"خطأ في Gemini API: {response.status}")
-                    ai_reply = None
+                    error_text = await response.text()
+                    logger.error(f"Gemini API Error {response.status}: {error_text}")
+                    ai_reply = f"❌ **خطأ في الخادم:** {response.status}. يرجى المحاولة لاحقاً."
                     
+    except asyncio.TimeoutError:
+        logger.error("Timeout error with Gemini API")
+        ai_reply = "❌ **انتهت المهلة:** استغرقت العملية وقتاً طويلاً. يرجى المحاولة مرة أخرى."
+    except aiohttp.ClientError as e:
+        logger.error(f"Network error: {e}")
+        ai_reply = "❌ **خطأ في الشبكة:** تعذر الاتصال بخادم البحث. تحقق من اتصالك بالإنترنت."
     except Exception as e:
-        logger.error(f"خطأ في الاتصال بـ Gemini API: {e}")
-        ai_reply = None
+        logger.error(f"Unexpected error in search: {e}")
+        ai_reply = "❌ **خطأ غير متوقع:** حدث خطأ ما. يرجى المحاولة مرة أخرى."
     
-    if not ai_reply:
-        await update.message.reply_text("❌ **عذراً:** لم أتمكن من العثور على نتائج لبحثك. يرجى:\n\n1. التحقق من اتصال الإنترنت\n2. المحاولة بكلمات مختلفة\n3. الانتظار قليلاً والمحاولة مرة أخرى")
+    # حذف رسالة "جاري البحث"
+    try:
+        await context.bot.delete_message(
+            chat_id=update.message.chat_id,
+            message_id=processing_msg.message_id
+        )
+    except:
+        pass
+    
+    # إذا لم نتمكن من الحصول على رد
+    if not ai_reply or ai_reply.startswith("❌"):
+        await update.message.reply_text(
+            f"{ai_reply}\n\n"
+            "💡 **اقتراحات للبحث:**\n"
+            "• جرب استخدام كلمات مختلفة\n"
+            "• تأكد من اتصال الإنترنت\n"
+            "• انتظر قليلاً ثم حاول مرة أخرى\n"
+            "• استخدم البحث عن طريق السور والآيات المباشرة"
+        )
         return
     
-    # إزالة أي أسئلة أو عبارات غير مرغوبة من الرد
-    unwanted_phrases = [
-        "هل تقصدين", "هل تريدين", "أخبريني", "هل تريدي", "اقتراحات متابعة",
-        "هل تفضلين", "أبحث عن", "يمكنني", "هل ترغبين", "ما الذي"
-    ]
-    
-    for phrase in unwanted_phrases:
-        if phrase in ai_reply:
-            # نحاول استخراج الجزء بعد الأسئلة
-            parts = ai_reply.split(phrase)
-            if len(parts) > 1:
-                # نأخذ الجزء الأخير فقط
-                ai_reply = parts[-1].strip()
-                # إذا كان يبدأ بنقطتين أو فاصلة، نزيلها
-                if ai_reply.startswith(':') or ai_reply.startswith('،'):
-                    ai_reply = ai_reply[1:].strip()
-            break
+    # تنظيف النتائج
+    ai_reply = ai_reply.strip()
     
     # حفظ النتائج في الذاكرة المؤقتة
     cache['search_results'][update.message.chat_id] = {
@@ -1827,7 +2556,7 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إنشاء زر الراديو كزر ويب مع تصميم مميز
     radio_button = InlineKeyboardButton(
         "📻 راديو سطور من السماء", 
-        web_app={"url": f"https://{os.getenv('REPLIT_DEV_DOMAIN', 'your-replit-domain.herokuapp.com')}/radio"}
+        web_app={"url": f"{BASE_WEB_URL}/radio"}
     )
     
     keyboard = [
@@ -2237,9 +2966,11 @@ def main():
     
     # تشغيل البوت
     logger.info("🚀 بدء تشغيل البوت سُطورٌ من السَّماء...")
+    logger.info(f"📱 البوت: https://t.me/{(application.bot.username)}")
+    logger.info(f"🌐 الراديو: {BASE_WEB_URL}/radio")
+    logger.info(f"🔍 البحث الذكي: {'✅ متاح' if GEMINI_API_KEY else '❌ غير متاح'}")
     logger.info("📖 المصحف الشريف جاهز")
     logger.info("📻 الراديو المباشر يعمل")
-    logger.info("🔍 محرك البحث نشط")
     logger.info("🎵 مكتبة التلاوات متاحة")
     logger.info("🤖 البوت يعمل بكامل طاقته!")
     
