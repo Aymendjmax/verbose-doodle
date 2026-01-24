@@ -133,14 +133,28 @@ def radio():
 def health():
     return jsonify({"health": "ok", "timestamp": time.time()})
 
-# تشغيل Flask في thread منفصل
-def run_flask():
-    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
-
-# بدء Flask server
-flask_thread = threading.Thread(target=run_flask)
-flask_thread.daemon = True
-flask_thread.start()
+# تشغيل البوت في thread منفصل
+def run_bot():
+    """تشغيل البوت في thread منفصل"""
+    # إنشاء التطبيق
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # إضافة المعالجات
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(handle_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # تشغيل البوت
+    logger.info("🚀 بدء تشغيل البوت سُطورٌ من السَّماء...")
+    logger.info(f"📱 البوت: https://t.me/{(application.bot.username)}")
+    logger.info(f"🌐 الراديو: {BASE_WEB_URL}/radio")
+    logger.info(f"🔍 البحث الذكي: {'✅ متاح' if GEMINI_API_KEY else '❌ غير متاح'}")
+    logger.info("📖 المصحف الشريف جاهز")
+    logger.info("📻 الراديو المباشر يعمل")
+    logger.info("🎵 مكتبة التلاوات متاحة")
+    logger.info("🤖 البوت يعمل بكامل طاقته!")
+    
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 # الذاكرة المؤقتة للبيانات
 cache = {
@@ -2954,33 +2968,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 
-async def main_async():
-    """الدالة الرئيسية غير المتزامنة"""
-    # إنشاء التطبيق
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # إضافة المعالجات
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(handle_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # تشغيل البوت
-    logger.info("🚀 بدء تشغيل البوت سُطورٌ من السَّماء...")
-    
-    # تهيئة التطبيق أولاً
-    await application.initialize()
-    
-    # الآن يمكننا الوصول إلى خصائص البوت
-    logger.info(f"📱 البوت: https://t.me/{(application.bot.username)}")
-    logger.info(f"🌐 الراديو: {BASE_WEB_URL}/radio")
-    logger.info(f"🔍 البحث الذكي: {'✅ متاح' if GEMINI_API_KEY else '❌ غير متاح'}")
-    logger.info("📖 المصحف الشريف جاهز")
-    logger.info("📻 الراديو المباشر يعمل")
-    logger.info("🎵 مكتبة التلاوات متاحة")
-    logger.info("🤖 البوت يعمل بكامل طاقته!")
-    
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
-
 def main():
-    """الدالة الرئيسية - نقطة الدخول"""
-    asyncio.run(main_async())
+    """الدالة الرئيسية - تشغيل كل شيء"""
+    # تشغيل البوت في thread منفصل
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    
+    # تشغيل Flask في الخيط الرئيسي (مهم لـ Render)
+    logger.info(f"🌐 بدء خادم الويب على المنفذ {PORT}...")
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+
+if __name__ == '__main__':
+    main()
