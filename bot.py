@@ -2954,8 +2954,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 
-def main():
-    """الدالة الرئيسية"""
+async def main_async():
+    """الدالة الرئيسية غير المتزامنة"""
     # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -2966,6 +2966,11 @@ def main():
     
     # تشغيل البوت
     logger.info("🚀 بدء تشغيل البوت سُطورٌ من السَّماء...")
+    
+    # تهيئة التطبيق أولاً
+    await application.initialize()
+    
+    # الآن يمكننا الوصول إلى خصائص البوت
     logger.info(f"📱 البوت: https://t.me/{(application.bot.username)}")
     logger.info(f"🌐 الراديو: {BASE_WEB_URL}/radio")
     logger.info(f"🔍 البحث الذكي: {'✅ متاح' if GEMINI_API_KEY else '❌ غير متاح'}")
@@ -2974,7 +2979,8 @@ def main():
     logger.info("🎵 مكتبة التلاوات متاحة")
     logger.info("🤖 البوت يعمل بكامل طاقته!")
     
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
-if __name__ == '__main__':
-    main()
+def main():
+    """الدالة الرئيسية - نقطة الدخول"""
+    asyncio.run(main_async())
