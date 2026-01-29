@@ -133,8 +133,7 @@ def radio():
 def health():
     return jsonify({"health": "ok", "timestamp": time.time()})
 
-# تشغيل البوت في thread منفصل
-def run_bot():
+():
     """تشغيل البوت في thread منفصل"""
     # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
@@ -146,7 +145,6 @@ def run_bot():
     
     # تشغيل البوت
     logger.info("🚀 بدء تشغيل البوت سُطورٌ من السَّماء...")
-    logger.info(f"📱 البوت: https://t.me/{(application.bot.username)}")
     logger.info(f"🌐 الراديو: {BASE_WEB_URL}/radio")
     logger.info(f"🔍 البحث الذكي: {'✅ متاح' if GEMINI_API_KEY else '❌ غير متاح'}")
     logger.info("📖 المصحف الشريف جاهز")
