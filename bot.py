@@ -7,7 +7,7 @@ import io
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, 
     ContextTypes, MessageHandler, filters
@@ -228,7 +228,10 @@ CHANNEL_ID = os.getenv('CHANNEL_ID')
 DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME', 'your_developer_username')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME', 'your_channel_username')
 PORT = int(os.getenv('PORT', 5000))
-RENDER_EXTERNAL_URL = os.getenv('RENDER_EXTERNAL_URL', '')
+RENDER_EXTERNAL_URL = os.getenv('RENDER_EXTERNAL_URL', f'http://localhost:{PORT}')
+RADIO_URL = f"{RENDER_EXTERNAL_URL}/radio"
+
+logger.info(f"📻 رابط الراديو: {RADIO_URL}")
 
 # Google Gemini API
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
@@ -384,7 +387,7 @@ app = Flask(__name__)
 def index():
     return jsonify({
         "status": "البوت يعمل بنجاح! 🕊️", 
-        "bot": "سُطورٌ من السَّماء ☁️",
+        "bot": "سُطورٌ من السماء ☁️",
         "services": {
             "quran_text": "متاح",
             "quran_images": "متاح",
@@ -1087,7 +1090,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # إنشاء واجهة المستخدم
     radio_button = InlineKeyboardButton(
         "📻 راديو سطور من السماء", 
-        web_app={"url": f"http://0.0.0.0:{PORT}/radio"}
+        web_app=WebAppInfo(url=RADIO_URL)
     )
     
     keyboard = [
@@ -1148,7 +1151,7 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     radio_button = InlineKeyboardButton(
         "📻 راديو سطور من السماء", 
-        web_app={"url": f"http://0.0.0.0:{PORT}/radio"}
+        web_app=WebAppInfo(url=RADIO_URL)
     )
     
     keyboard = [
@@ -1735,6 +1738,7 @@ def main():
     
     # ✅ تشغيل البوت في الـ main thread
     logger.info("🚀 بدء تشغيل البوت سُطورٌ من السَّماء...")
+    logger.info(f"📻 رابط الراديو: {RADIO_URL}")
     logger.info(f"🌐 الراديو: http://0.0.0.0:{PORT}/radio")
     logger.info(f"🔍 البحث الذكي: {'✅ متاح' if GEMINI_API_KEY else '❌ غير متاح'}")
     logger.info("📖 المصحف الشريف جاهز")
