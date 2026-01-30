@@ -6,12 +6,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# نسخ ملفات المتطلبات أولاً
+# نسخ متطلبات التطبيق
 COPY requirements.txt .
 
-# تثبيت المتطلبات مع تحديث pip
+# تثبيت المتطلبات
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
