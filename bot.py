@@ -1722,16 +1722,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== تشغيل البوت ====================
 
-def run_bot():
-    """تشغيل البوت في thread منفصل"""
-    application = Application.builder().token(BOT_TOKEN).build()
+def run_flask():
+    """تشغيل Flask في thread منفصل"""
+    logger.info(f"🌐 بدء خادم الويب على المنفذ {PORT}...")
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+
+def main():
+    """الدالة الرئيسية"""
+    # ✅ تشغيل Flask في thread خلفي (daemon)
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
     
-    # إضافة المعالجات
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(handle_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # تشغيل البوت
+    # ✅ تشغيل البوت في الـ main thread
     logger.info("🚀 بدء تشغيل البوت سُطورٌ من السَّماء...")
     logger.info(f"🌐 الراديو: http://0.0.0.0:{PORT}/radio")
     logger.info(f"🔍 البحث الذكي: {'✅ متاح' if GEMINI_API_KEY else '❌ غير متاح'}")
@@ -1740,17 +1742,16 @@ def run_bot():
     logger.info("🎵 مكتبة التلاوات متاحة")
     logger.info("🤖 البوت يعمل بكامل طاقته!")
     
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-
-def main():
-    """الدالة الرئيسية"""
-    # تشغيل البوت في thread منفصل
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
+    # إنشاء وتشغيل البوت
+    application = Application.builder().token(BOT_TOKEN).build()
     
-    # تشغيل Flask
-    logger.info(f"🌐 بدء خادم الويب على المنفذ {PORT}...")
-    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+    # إضافة المعالجات
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(handle_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # تشغيل البوت (بدون drop_pending_updates لأفضل استقرار)
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
